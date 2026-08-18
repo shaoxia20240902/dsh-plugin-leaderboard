@@ -44,7 +44,8 @@ Boards load first from the hosted API `http://101.34.27.122:3091` (MySQL), then 
 Default `access: auto`: try `api.github.com` first, then public HTTPS proxies (for example `ghfast.top`).
 
 - **Board data** — the host retries through a proxy so the sidebar still fills in.
-- **Open repository** — uses the `kkgithub.com` web mirror by default (`githubHtmlBase`).
+- **Open repository** — official `https://github.com/owner/repo`. Host-swap sites such as kkgithub.com 404 on most repos, so they are not used.
+- **Details** — a page on the hosted API (`/r/owner/repo`) with description plus a working clone-via-proxy command.
 - **Copy install / Explain** — include a “clone via proxy, then `dsh plugin add <dir>`” command.
 
 **A GitHub token is sent only to the official API, never through a public proxy.** Public mirrors are third-party and can vanish; override them when you have a stable one:
@@ -54,7 +55,7 @@ Default `access: auto`: try `api.github.com` first, then public HTTPS proxies (f
   config:
     access: auto
     githubApiBase: https://your-proxy.example/https://api.github.com
-    githubHtmlBase: https://kkgithub.com
+    githubHtmlBase: https://github.com
     githubCloneProxy: https://ghfast.top/
 ```
 

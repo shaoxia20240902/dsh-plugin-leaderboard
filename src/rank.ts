@@ -1,5 +1,5 @@
 import {
-  browseUrl, DEFAULT_HTML_MIRROR, installCommand as buildInstall,
+  browseUrl, cardUrl, DEFAULT_HTML_MIRROR, installCommand as buildInstall,
   type AccessLinks, type SnapshotAccess,
 } from './access.ts'
 import { interpretPrompt } from './interpret.ts'
@@ -8,6 +8,7 @@ import { heatScore, pickBoards } from './score.ts'
 export { fireScore, heatScore, hotScore, newScore } from './score.ts'
 import {
   DEFAULT_EXCLUDES,
+  DEFAULT_ORIGIN_URL,
   FIRE_LIMIT,
   HOT_LIMIT,
   NEW_LIMIT,
@@ -46,17 +47,18 @@ export function installCommand(fullName: string, cloneProxy = ''): string {
 function decorate(
   repos: readonly PluginRepo[],
   nowMs: number,
-  access?: Pick<AccessLinks, 'htmlBase' | 'cloneProxy'>,
+  access?: { readonly htmlBase?: string; readonly cloneProxy?: string; readonly cardBase?: string },
 ): RankedPlugin[] {
   const htmlBase = access?.htmlBase ?? DEFAULT_HTML_MIRROR
   const cloneProxy = access?.cloneProxy ?? ''
+  const cardBase = access?.cardBase?.trim() ?? ''
   return repos.map((repo, index) => ({
     ...repo,
     rank: index + 1,
     heat: heatScore(repo, nowMs),
     install: installCommand(repo.fullName, cloneProxy),
-    interpret: interpretPrompt(repo, { htmlBase, cloneProxy }),
-    mirrorUrl: browseUrl(repo.fullName, htmlBase),
+    interpret: interpretPrompt(repo, { htmlBase, cloneProxy, cardUrl: cardBase.length > 0 ? cardUrl(cardBase, repo.fullName) : undefined }),
+    mirrorUrl: cardBase.length > 0 ? cardUrl(cardBase, repo.fullName) : browseUrl(repo.fullName, htmlBase),
   }))
 }
 
@@ -82,7 +84,7 @@ function board(
   id: BoardId,
   repos: readonly PluginRepo[],
   nowMs: number,
-  access?: Pick<AccessLinks, 'htmlBase' | 'cloneProxy'>,
+  access?: { readonly htmlBase?: string; readonly cloneProxy?: string; readonly cardBase?: string },
 ): Board {
   const copy = BOARD_COPY[id]
   return {
@@ -110,6 +112,7 @@ export function buildLeaderboard(
     readonly newLimit?: number
     readonly fireLimit?: number
     readonly access?: Pick<AccessLinks, 'htmlBase' | 'cloneProxy'>
+    readonly cardBase?: string
     readonly snapshotAccess?: SnapshotAccess
   },
 ): LeaderboardSnapshot {
@@ -123,6 +126,7 @@ export function buildLeaderboard(
   const hot = picked.hot
   const newest = picked.newest
   const fire = picked.fire
+  const access = { ...options.access, cardBase: options.cardBase ?? DEFAULT_ORIGIN_URL }
   return {
     topic: options.topic,
     fetchedAt: options.fetchedAt ?? new Date(nowMs).toISOString(),
@@ -130,10 +134,10 @@ export function buildLeaderboard(
     incomplete: options.incomplete === true,
     ...options.snapshotAccess === undefined ? {} : { access: options.snapshotAccess },
     boards: {
-      hot: board('hot', hot, nowMs, options.access),
-      new: board('new', newest, nowMs, options.access),
-      fire: board('fire', fire, nowMs, options.access),
-      recommend: board('recommend', [], nowMs, options.access),
+      hot: board('hot', hot, nowMs, access),
+      new: board('new', newest, nowMs, access),
+      fire: board('fire', fire, nowMs, access),
+      recommend: board('recommend', [], nowMs, access),
     },
   }
 }

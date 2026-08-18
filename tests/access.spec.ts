@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  browseUrl, cloneUrl, githubSearchUrl, installCommand, isOfficialApi, isProxiedApi,
+  browseUrl, cardUrl, cloneUrl, githubSearchUrl, installCommand, isOfficialApi, isProxiedApi,
   OFFICIAL_API, resolveAccess, resolveApiBases,
 } from '../src/access.ts'
 
@@ -17,9 +17,13 @@ describe('resolveApiBases', () => {
 })
 
 describe('url rewrite', () => {
-  it('rewrites browse links onto the html mirror host', () => {
+  it('opens the official GitHub page; prefix proxies are not HTML mirrors', () => {
+    expect(browseUrl('volcengine/OpenViking')).toBe('https://github.com/volcengine/OpenViking')
+    expect(browseUrl('volcengine/OpenViking', 'https://github.com')).toBe('https://github.com/volcengine/OpenViking')
+    expect(browseUrl('volcengine/OpenViking', 'https://ghfast.top')).toBe('https://github.com/volcengine/OpenViking')
     expect(browseUrl('acme/board', 'https://kkgithub.com')).toBe('https://kkgithub.com/acme/board')
-    expect(browseUrl('acme/board', 'https://github.com')).toBe('https://github.com/acme/board')
+    expect(cardUrl('http://101.34.27.122:3091', 'volcengine/OpenViking'))
+      .toBe('http://101.34.27.122:3091/r/volcengine/OpenViking')
   })
 
   it('prefixes clone URLs for proxy git', () => {
@@ -53,9 +57,9 @@ describe('token safety', () => {
 })
 
 describe('resolveAccess', () => {
-  it('defaults auto mode to a web mirror and clone proxy', () => {
+  it('defaults auto mode to official browse plus a clone proxy', () => {
     const access = resolveAccess({ access: 'auto' })
-    expect(access.htmlBase).toBe('https://kkgithub.com')
+    expect(access.htmlBase).toBe('https://github.com')
     expect(access.cloneProxy.length).toBeGreaterThan(0)
     expect(access.apiBases[0]).toBe(OFFICIAL_API)
   })

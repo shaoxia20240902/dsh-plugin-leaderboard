@@ -22,7 +22,7 @@ describe('interpretPrompt', () => {
   it('asks the agent to clone the repo and explain it in plain language', () => {
     const prompt = interpretPrompt(repo)
     expect(prompt).toContain('https://github.com/acme/board')
-    expect(prompt).toContain('kkgithub.com/acme/board')
+    expect(prompt).not.toContain('kkgithub.com')
     expect(prompt).toContain('git clone --depth 1')
     expect(prompt).toContain('/tmp/dsh-read-board')
     expect(prompt).toContain('dsh plugin --profile web add github:acme/board')

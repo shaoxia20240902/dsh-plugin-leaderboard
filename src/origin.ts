@@ -52,3 +52,37 @@ export async function fetchOriginSnapshot(
   if (!looksLikeSnapshot(payload)) throw new Error('origin payload is not a leaderboard snapshot')
   return payload
 }
+
+/** Result of POST /v1/suggest. */
+export interface SuggestResult {
+  readonly ok: boolean
+  readonly status: string
+  readonly fullName?: string
+  readonly error?: string
+}
+
+/**
+ * Submit a community recommendation to the hosted API.
+ * @param originUrl - e.g. http://101.34.27.122:3091
+ * @param input - repo ref and reason
+ */
+export async function submitOriginSuggestion(
+  originUrl: string,
+  input: { readonly fullName: string; readonly reason: string },
+): Promise<SuggestResult> {
+  const base = originUrl.replace(/\/+$/u, '')
+  const response = await fetch(`${base}/v1/suggest`, {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify({ fullName: input.fullName, reason: input.reason }),
+    signal: AbortSignal.timeout(12_000),
+  })
+  const payload: unknown = await response.json().catch(() => ({}))
+  if (!isObject(payload)) throw new Error(`origin suggest HTTP ${response.status}`)
+  return {
+    ok: payload.ok === true,
+    status: typeof payload.status === 'string' ? payload.status : (response.ok ? 'ok' : 'error'),
+    fullName: typeof payload.fullName === 'string' ? payload.fullName : undefined,
+    error: typeof payload.error === 'string' ? payload.error : undefined,
+  }
+}

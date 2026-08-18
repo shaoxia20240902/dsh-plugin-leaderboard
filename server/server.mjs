@@ -15,8 +15,13 @@ import {
 const PORT = Number(process.env.PORT ?? 3090)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? ''
 const TOPIC = process.env.TOPIC ?? 'dsh-plugin'
-const HTML_BASE = process.env.GITHUB_HTML_BASE ?? 'https://kkgithub.com'
+const PUBLIC_URL = (process.env.PUBLIC_URL ?? 'http://101.34.27.122:3091').replace(/\/+$/u, '')
+const HTML_BASE = process.env.GITHUB_HTML_BASE ?? 'https://github.com'
 const CLONE_PROXY = (process.env.GITHUB_CLONE_PROXY ?? 'https://ghfast.top').replace(/\/+$/u, '')
+const SUGGEST_LOCK = 'dsh_plugin_board_suggest'
+const SUGGEST_PER_IP = 5
+const SUGGEST_REASON_MIN = 8
+const SUGGEST_REASON_MAX = 400
 
 const API_BASES = [
   'https://api.github.com',
@@ -53,7 +58,44 @@ async function withDb(fn) {
 }
 
 function browseUrl(fullName) {
-  return `${HTML_BASE.replace(/\/+$/u, '')}/${fullName}`
+  return `https://github.com/${fullName}`
+}
+
+function cardUrl(fullName) {
+  return `${PUBLIC_URL}/r/${fullName}`
+}
+
+function parseFullName(raw) {
+  let value = String(raw ?? '').trim()
+  if (value.length === 0) return ''
+  value = value.replace(/^github:/i, '').replace(/\.git$/i, '')
+  const nested = value.match(/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/i)
+  if (nested) value = nested[1]
+  else if (value.includes('://') || value.startsWith('github.com/')) {
+    try {
+      const url = new URL(value.includes('://') ? value : `https://${value}`)
+      const parts = url.pathname.replace(/^\/+/u, '').split('/')
+      if (parts.length >= 2) value = `${parts[0]}/${parts[1]}`
+    } catch {
+      return ''
+    }
+  }
+  const [owner, repoPart] = value.split('/')
+  const repo = (repoPart ?? '').split(/[/?#]/)[0]?.replace(/\.git$/i, '') ?? ''
+  const fullName = `${owner}/${repo}`
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) return ''
+  if (fullName.toLowerCase() === 'deepseek-ai/deepseek-harness') return ''
+  return fullName
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]))
 }
 
 function cloneUrl(fullName) {
@@ -78,7 +120,7 @@ function interpretPrompt(repo) {
     '',
     `仓库：${repo.fullName}`,
     `地址：${repo.url}`,
-    `镜像（打不开 GitHub 时用）：${browseUrl(repo.fullName)}`,
+    `详情页（打不开 GitHub 时用）：${cardUrl(repo.fullName)}`,
     `简介：${description}`,
     `Star：${repo.stars}`,
     `克隆：git clone --depth 1 ${cloneUrl(repo.fullName)} ${dir}`,
@@ -129,7 +171,7 @@ function decorate(row, rank, extra = {}) {
     heat: Number(row.heat ?? fireScore(repo, Date.now())),
     install: installCommand(repo.fullName),
     interpret: interpretPrompt(repo),
-    mirrorUrl: browseUrl(repo.fullName),
+    mirrorUrl: cardUrl(repo.fullName),
     ...extra.reason ? { reason: extra.reason } : {},
   }
 }
@@ -291,9 +333,10 @@ async function loadSnapshot(conn) {
     access: {
       mode: 'origin',
       apiUsed: apiRows[0]?.v || 'mysql',
-      htmlBase: HTML_BASE,
+      htmlBase: 'https://github.com',
       cloneProxy: CLONE_PROXY,
       proxied: true,
+      cardBase: PUBLIC_URL,
     },
     boards: {
       hot: board('hot', '最热', '长期影响力：star/fork 取对数，叠加是否还在维护、是不是真 DSH 插件。', picked.hot.map((row, i) => decorate(row, i + 1))),
@@ -437,6 +480,148 @@ function send(res, status, payload) {
   res.end(body)
 }
 
+function sendHtml(res, status, html) {
+  res.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'access-control-allow-origin': '*',
+  })
+  res.end(html)
+}
+
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim()
+  return (forwarded || req.socket?.remoteAddress || '').slice(0, 64)
+}
+
+async function ensureSchema(conn) {
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS suggestions (
+      id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      full_name VARCHAR(200) NOT NULL,
+      reason VARCHAR(500) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      ip VARCHAR(64) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL,
+      KEY idx_full_name (full_name),
+      KEY idx_status (status),
+      KEY idx_ip_created (ip, created_at)
+    ) DEFAULT CHARSET=utf8mb4
+  `)
+}
+
+async function submitSuggestion(req) {
+  const body = await readJson(req)
+  const fullName = parseFullName(body.fullName ?? body.full_name ?? body.repo ?? '')
+  const reason = String(body.reason ?? '').trim()
+  if (fullName.length === 0) {
+    return { status: 400, payload: { ok: false, status: 'invalid', error: '需要 owner/repo 或 GitHub 链接' } }
+  }
+  if (reason.length < SUGGEST_REASON_MIN || reason.length > SUGGEST_REASON_MAX) {
+    return {
+      status: 400,
+      payload: {
+        ok: false,
+        status: 'invalid',
+        error: `推荐理由需要 ${SUGGEST_REASON_MIN}～${SUGGEST_REASON_MAX} 个字`,
+      },
+    }
+  }
+  const ip = clientIp(req)
+  return withDb(async (conn) => {
+    await ensureSchema(conn)
+    const [lockRows] = await conn.query('SELECT GET_LOCK(?, 3) AS got', [SUGGEST_LOCK])
+    if (Number(lockRows[0].got) !== 1) {
+      return { status: 200, payload: { ok: false, status: 'busy', error: '同时提交的人太多，请稍后再试' } }
+    }
+    try {
+      const [ipRows] = await conn.query(
+        'SELECT COUNT(*) AS n FROM suggestions WHERE ip=? AND created_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)',
+        [ip],
+      )
+      if (Number(ipRows[0].n) >= SUGGEST_PER_IP) {
+        return { status: 429, payload: { ok: false, status: 'rate_limited', error: '提交太勤，一小时后再试' } }
+      }
+      const [insertResult] = await conn.execute(
+        `INSERT INTO suggestions (full_name, reason, status, ip, created_at)
+         VALUES (?,?,?,?,NOW())`,
+        [fullName, reason, 'pending', ip],
+      )
+      const suggestId = insertResult.insertId
+      const [recRows] = await conn.query(
+        'SELECT enabled FROM recommendations WHERE full_name=?',
+        [fullName],
+      )
+      if (recRows[0] && Number(recRows[0].enabled) === 1) {
+        await conn.execute('UPDATE suggestions SET status=? WHERE id=?', ['duplicate', suggestId])
+        return { status: 200, payload: { ok: true, status: 'exists', fullName } }
+      }
+      const [plugRows] = await conn.query(
+        'SELECT full_name FROM plugins WHERE full_name=? AND archived=0 AND is_fork=0',
+        [fullName],
+      )
+      if (plugRows.length > 0) {
+        const [maxRows] = await conn.query('SELECT COALESCE(MAX(rank_no), 0) + 1 AS n FROM recommendations')
+        await conn.execute(
+          `INSERT INTO recommendations (full_name, rank_no, reason, enabled, created_at)
+           VALUES (?,?,?,1,NOW())
+           ON DUPLICATE KEY UPDATE reason=VALUES(reason), enabled=1`,
+          [fullName, Number(maxRows[0].n), reason],
+        )
+        await conn.execute('UPDATE suggestions SET status=? WHERE id=?', ['approved', suggestId])
+        return { status: 200, payload: { ok: true, status: 'published', fullName } }
+      }
+      return { status: 200, payload: { ok: true, status: 'pending', fullName } }
+    } finally {
+      await conn.query('SELECT RELEASE_LOCK(?) AS released', [SUGGEST_LOCK])
+    }
+  })
+}
+
+function renderRepoCard(fullName, row) {
+  const official = browseUrl(fullName)
+  const clone = cloneUrl(fullName)
+  const install = escapeHtml(installCommand(fullName))
+  const name = escapeHtml(fullName)
+  const description = escapeHtml((row?.description ?? '').trim() || '目录里还没有这份简介，先看 GitHub 或按下面的命令 clone。')
+  const stars = row ? Number(row.stars ?? 0) : '—'
+  const forks = row ? Number(row.forks ?? 0) : '—'
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${name} · dsh-plugin</title>
+  <style>
+    body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1b1b1b;background:#f6f5f2}
+    main{max-width:720px;margin:0 auto;padding:32px 20px 48px}
+    h1{margin:0 0 8px;font-size:22px}
+    .meta{color:#666;font-size:13px}
+    p{margin:12px 0}
+    a{color:#0b57d0}
+    pre{overflow:auto;padding:12px;border-radius:10px;background:#111;color:#f3f3f3;font-size:12px}
+    .row{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+    .btn{display:inline-block;padding:8px 12px;border-radius:8px;background:#111;color:#fff;text-decoration:none}
+    .btn.alt{background:#fff;color:#111;border:1px solid #ccc}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${name}</h1>
+    <div class="meta">★ ${stars} · ⌥ ${forks} · GitHub topic dsh-plugin</div>
+    <p>${description}</p>
+    <div class="row">
+      <a class="btn" href="${escapeHtml(official)}">打开 GitHub</a>
+      <a class="btn alt" href="${escapeHtml(clone)}">代理克隆地址</a>
+    </div>
+    <p>打不开 GitHub 时用下面的代理克隆命令，不要再用会 404 的网页镜像。</p>
+    <pre>${install}</pre>
+    <p class="meta">详情页由排行榜服务器提供，不经过第三方网页镜像。</p>
+  </main>
+</body>
+</html>`
+}
+
 async function handle(req, res) {
   const url = new URL(req.url ?? '/', 'http://dsh-board.local')
   const method = req.method ?? 'GET'
@@ -491,6 +676,37 @@ async function handle(req, res) {
     } catch (error) {
       send(res, 502, { error: error instanceof Error ? error.message : String(error) })
     }
+    return
+  }
+  if (method === 'GET' && url.pathname.startsWith('/r/')) {
+    const fullName = parseFullName(url.pathname.slice('/r/'.length))
+    if (fullName.length === 0) {
+      sendHtml(res, 404, renderRepoCard('unknown/repo', null))
+      return
+    }
+    const row = await withDb(async (conn) => {
+      const [rows] = await conn.query('SELECT * FROM plugins WHERE full_name=?', [fullName])
+      return rows[0] ?? null
+    })
+    sendHtml(res, 200, renderRepoCard(fullName, row))
+    return
+  }
+  if (method === 'POST' && url.pathname === '/v1/suggest') {
+    const result = await submitSuggestion(req)
+    send(res, result.status, result.payload)
+    return
+  }
+  if (method === 'GET' && url.pathname === '/v1/suggest') {
+    if (!authorized(req)) { send(res, 401, { error: 'unauthorized' }); return }
+    const rows = await withDb(async (conn) => {
+      await ensureSchema(conn)
+      const [list] = await conn.query(
+        `SELECT id, full_name, reason, status, created_at
+         FROM suggestions ORDER BY id DESC LIMIT 50`,
+      )
+      return list
+    })
+    send(res, 200, { ok: true, items: rows })
     return
   }
   if (method === 'POST' && url.pathname === '/v1/refresh') {
@@ -559,6 +775,11 @@ const server = http.createServer((req, res) => {
     send(res, 500, { error: message })
   })
 })
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '127.0.0.1', async () => {
+  try {
+    await withDb(ensureSchema)
+  } catch (error) {
+    console.error('ensureSchema failed', error)
+  }
   console.log(`dsh-plugin-board listening on 127.0.0.1:${PORT}`)
 })

@@ -39,6 +39,14 @@ export const LEADERBOARD_CSS = `
 .dsh-lb-action{height:26px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box}
 .dsh-lb-action:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}
 .dsh-lb-action-interpret{border-color:var(--dsw-alias-label-tertiary)}
+.dsh-lb-suggest{margin-top:12px;padding:10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:10px}
+.dsh-lb-suggest h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-lb-field{display:flex;flex-direction:column;gap:4px;margin:0 0 8px}
+.dsh-lb-field label{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.dsh-lb-field input,.dsh-lb-field textarea{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}
+.dsh-lb-field textarea{min-height:56px;resize:vertical}
+.dsh-lb-suggest-submit{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
+.dsh-lb-suggest-submit:disabled{opacity:.55;cursor:default}
 .dsh-lb-foot{flex:none;padding:8px 12px 10px;border-top:1px solid var(--dsw-alias-border-l2);font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 `.trim()
 

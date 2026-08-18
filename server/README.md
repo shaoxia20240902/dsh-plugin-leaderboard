@@ -7,6 +7,8 @@ Public:
 - `GET /v1/health` — last sync time and whether `GET_LOCK` is held
 - `GET /v1/leaderboard` — always reads MySQL, never GitHub
 - `GET /v1/leaderboard?refresh=1` or `POST /v1/refresh` — return the current snapshot; start a locked GitHub sync if the cooldown allows
+- `GET /r/owner/repo` — a detail page that never 404s like kkgithub host-swap mirrors
+- `POST /v1/suggest` — community recommend form (`fullName` + `reason`). Known catalog repos publish immediately; others stay pending. Uses `GET_LOCK('dsh_plugin_board_suggest', 3)` and 5 submits / IP / hour.
 
 Sync rules:
 

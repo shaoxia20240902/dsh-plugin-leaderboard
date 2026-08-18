@@ -4,8 +4,12 @@ export const OFFICIAL_API = 'https://api.github.com'
 /** Official GitHub website. */
 export const OFFICIAL_HTML = 'https://github.com'
 
-/** Web UI mirror that swaps the github.com host. */
-export const DEFAULT_HTML_MIRROR = 'https://kkgithub.com'
+/**
+ * Default website for「打开仓库」. Host-swap mirrors such as kkgithub.com
+ * 404 on most repos; the official page is the only reliable browse URL.
+ * Clone/install still use {@link DEFAULT_CLONE_PROXIES}.
+ */
+export const DEFAULT_HTML_MIRROR = OFFICIAL_HTML
 
 /**
  * Public HTTPS prefixes that fetch `https://api.github.com/...` or
@@ -75,7 +79,7 @@ export function resolveAccess(input: {
 }): AccessLinks {
   const mode = parseAccessMode(input.access)
   const extraApis = splitCsv(input.githubApiBase)
-  const htmlDefault = mode === 'direct' ? OFFICIAL_HTML : DEFAULT_HTML_MIRROR
+  const htmlDefault = DEFAULT_HTML_MIRROR
   const cloneDefault = mode === 'direct' ? '' : DEFAULT_CLONE_PROXIES[0]
   return {
     mode,
@@ -108,13 +112,32 @@ export function githubSearchUrl(apiBase: string, query: URLSearchParams): string
   return url.toString()
 }
 
-/** Browse URL: host mirror (`kkgithub.com/a/b`) or official. */
+/**
+ * Browse URL for「打开仓库」.
+ * Prefix proxies (`ghfast.top/https://github.com/...`) only proxy git/raw/release
+ * and return 403 on HTML, so they are rewritten to the official page.
+ * An explicit host-swap base is kept only when the operator set one.
+ */
 export function browseUrl(fullName: string, htmlBase: string = DEFAULT_HTML_MIRROR): string {
   const official = `${OFFICIAL_HTML}/${fullName}`
   const base = stripSlash(htmlBase)
   if (base.length === 0 || base === OFFICIAL_HTML) return official
-  if (base.includes('://github.com')) return `${base}/${fullName}`
+  if (isPrefixProxy(base) || base.includes('://github.com')) return official
   return `${base}/${fullName}`
+}
+
+function isPrefixProxy(base: string): boolean {
+  try {
+    const host = new URL(base.includes('://') ? base : `https://${base}`).host
+    return host === 'ghfast.top' || host === 'gh-proxy.com' || host.endsWith('.gh-proxy.com')
+  } catch {
+    return false
+  }
+}
+
+/** Hosted detail page that works when github.com is blocked. */
+export function cardUrl(originUrl: string, fullName: string): string {
+  return `${stripSlash(originUrl)}/r/${fullName}`
 }
 
 /** `git clone` URL. Empty proxy keeps the official git URL. */

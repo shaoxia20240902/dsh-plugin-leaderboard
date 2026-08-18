@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { browseUrl, isProxiedApi, resolveAccess } from '../access.ts'
+import { browseUrl, cardUrl, isProxiedApi, resolveAccess } from '../access.ts'
 import { fetchCatalog } from '../github.ts'
 import { interpretPrompt } from '../interpret.ts'
-import { fetchOriginSnapshot, looksLikeSnapshot } from '../origin.ts'
+import { fetchOriginSnapshot, looksLikeSnapshot, submitOriginSuggestion } from '../origin.ts'
 import { buildLeaderboard } from '../rank.ts'
+import { parseRepoRef } from '../repo-ref.ts'
 import { DEFAULT_ORIGIN_URL, DEFAULT_TOPIC, type BoardId, type LeaderboardSnapshot, type RankedPlugin } from '../types.ts'
 import type { LeaderboardKey } from './locales.ts'
 import { ensureLeaderboardStyles } from './styles.ts'
@@ -135,15 +136,45 @@ function RankBadge({ rank }: { rank: number }): ReactElement {
   return <span className={`dsh-lb-rank${medal}`}>{rank}</span>
 }
 
+function officialUrl(item: RankedPlugin): string {
+  if (item.url.includes('://github.com/')) return item.url
+  return browseUrl(item.fullName)
+}
+
+function detailUrl(item: RankedPlugin): string {
+  if (item.mirrorUrl.length > 0 && !item.mirrorUrl.includes('kkgithub.com')) return item.mirrorUrl
+  return cardUrl(DEFAULT_ORIGIN_URL, item.fullName)
+}
+
+async function postSuggestion(fullName: string, reason: string): Promise<{ ok: boolean; status: string; error?: string }> {
+  try {
+    const response = await fetch('/dsh-plugin-leaderboard/suggest', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ fullName, reason }),
+      signal: AbortSignal.timeout(12_000),
+    })
+    if (response.ok || response.status === 400 || response.status === 429) {
+      return await response.json() as { ok: boolean; status: string; error?: string }
+    }
+  } catch {
+    // Host route missing — talk to the origin directly.
+  }
+  return submitOriginSuggestion(DEFAULT_ORIGIN_URL, { fullName, reason })
+}
+
 function PluginRow({
   item,
   t,
+  onSuggest,
 }: {
   item: RankedPlugin
   t: LeaderboardPanelProps['t']
+  onSuggest: (fullName: string) => void
 }): ReactElement {
   const [copied, setCopied] = useState<'install' | 'interpret' | null>(null)
-  const openUrl = item.mirrorUrl || browseUrl(item.fullName)
+  const openUrl = officialUrl(item)
+  const card = detailUrl(item)
   const copy = async (kind: 'install' | 'interpret'): Promise<void> => {
     const text = kind === 'install' ? item.install : (item.interpret || interpretPrompt(item))
     const ok = await writeClipboard(text)
@@ -174,8 +205,97 @@ function PluginRow({
         <a className="dsh-lb-action" href={openUrl} target="_blank" rel="noreferrer">
           {t('open')}
         </a>
+        <a className="dsh-lb-action" href={card} target="_blank" rel="noreferrer">
+          {t('card')}
+        </a>
+        <button type="button" className="dsh-lb-action" onClick={() => { onSuggest(item.fullName) }}>
+          {t('suggestThis')}
+        </button>
       </div>
     </li>
+  )
+}
+
+function RecommendForm({
+  t,
+  draft,
+  onPublished,
+}: {
+  t: (key: LeaderboardKey, params?: Record<string, string | number>) => string
+  draft: string
+  onPublished: () => void
+}): ReactElement {
+  const [repo, setRepo] = useState(draft)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  useEffect(() => { setRepo(draft) }, [draft])
+
+  const submit = async (): Promise<void> => {
+    const fullName = parseRepoRef(repo)
+    const trimmed = reason.trim()
+    if (fullName === undefined || trimmed.length < 8) {
+      setNote({ kind: 'err', text: t('suggestInvalid') })
+      return
+    }
+    setBusy(true)
+    setNote(null)
+    try {
+      const result = await postSuggestion(fullName, trimmed)
+      if (result.status === 'published') {
+        setNote({ kind: 'ok', text: t('suggestPublished') })
+        setReason('')
+        onPublished()
+      } else if (result.status === 'pending') {
+        setNote({ kind: 'ok', text: t('suggestPending') })
+        setReason('')
+      } else if (result.status === 'exists') {
+        setNote({ kind: 'ok', text: t('suggestExists') })
+      } else {
+        setNote({ kind: 'err', text: result.error || t('suggestError') })
+      }
+    } catch (error) {
+      setNote({ kind: 'err', text: error instanceof Error ? error.message : t('suggestError') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form
+      className="dsh-lb-suggest"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+    >
+      <h3>{t('suggest')}</h3>
+      <div className="dsh-lb-field">
+        <label htmlFor="dsh-lb-repo">{t('suggestRepo')}</label>
+        <input
+          id="dsh-lb-repo"
+          value={repo}
+          placeholder={t('suggestRepoHint')}
+          onChange={(event) => { setRepo(event.target.value) }}
+        />
+      </div>
+      <div className="dsh-lb-field">
+        <label htmlFor="dsh-lb-reason">{t('suggestReason')}</label>
+        <textarea
+          id="dsh-lb-reason"
+          value={reason}
+          placeholder={t('suggestReasonHint')}
+          onChange={(event) => { setReason(event.target.value) }}
+        />
+      </div>
+      <button type="submit" className="dsh-lb-suggest-submit" disabled={busy}>
+        {busy ? t('suggestBusy') : t('suggestSubmit')}
+      </button>
+      {note !== null && (
+        <p className={note.kind === 'err' ? 'dsh-lb-error' : 'dsh-lb-note'}>{note.text}</p>
+      )}
+    </form>
   )
 }
 
@@ -190,6 +310,7 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
   const [refreshing, setRefreshing] = useState(false)
   const [note, setNote] = useState<LeaderboardKey | null>(null)
   const [generation, setGeneration] = useState(0)
+  const [draft, setDraft] = useState('')
   const snapshotRef = useRef(snapshot)
   const wantRefreshRef = useRef(false)
   snapshotRef.current = snapshot
@@ -288,8 +409,42 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
             {snapshot !== undefined && items.length === 0 && <p className="dsh-lb-note">{translate('empty')}</p>}
             {snapshot !== undefined && items.length > 0 && (
               <ol className="dsh-lb-list">
-                {items.map(item => <PluginRow key={item.fullName} item={item} t={translate} />)}
+                {items.map(item => (
+                  <PluginRow
+                    key={item.fullName}
+                    item={item}
+                    t={translate}
+                    onSuggest={(fullName) => {
+                      setDraft(fullName)
+                      setBoard('recommend')
+                    }}
+                  />
+                ))}
               </ol>
+            )}
+            {board === 'recommend' && (
+              <RecommendForm
+                t={translate}
+                draft={draft}
+                onPublished={() => {
+                  void fetch(`${HOST_PATH}?fresh=1`, { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
+                    .then(async (response) => {
+                      if (!response.ok) throw new Error('fresh failed')
+                      return await response.json() as unknown
+                    })
+                    .then((payload) => {
+                      if (!looksLikeSnapshot(payload)) return
+                      remember(payload)
+                      setSnapshot(payload)
+                    })
+                    .catch(() => {
+                      void fetchOriginSnapshot(DEFAULT_ORIGIN_URL).then((next) => {
+                        remember(next)
+                        setSnapshot(next)
+                      })
+                    })
+                }}
+              />
             )}
           </div>
           <footer className="dsh-lb-foot">

@@ -37,3 +37,15 @@ CREATE TABLE IF NOT EXISTS meta (
   k VARCHAR(64) NOT NULL PRIMARY KEY,
   v TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS suggestions (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(200) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  KEY idx_full_name (full_name),
+  KEY idx_status (status),
+  KEY idx_ip_created (ip, created_at)
+);

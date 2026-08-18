@@ -1,6 +1,6 @@
 import { isProxiedApi, resolveAccess } from './access.ts'
 import { fetchCatalog, resolveGitHubToken } from './github.ts'
-import { fetchOriginSnapshot } from './origin.ts'
+import { fetchOriginSnapshot, submitOriginSuggestion, type SuggestResult } from './origin.ts'
 import { buildLeaderboard } from './rank.ts'
 import type { Config } from './config.ts'
 import type { LeaderboardSnapshot } from './types.ts'
@@ -23,6 +23,21 @@ export class LeaderboardCatalog {
    * @param config - plugin config captured at apply time
    */
   constructor(private readonly config: Config) {}
+
+  /** Drop the in-memory snapshot so the next read hits the origin. */
+  forget(): void {
+    this.cache = undefined
+  }
+
+  /**
+   * Forward a community recommendation to the hosted API.
+   * @param input - repo ref and reason
+   */
+  async suggest(input: { readonly fullName: string; readonly reason: string }): Promise<SuggestResult> {
+    const origin = this.config.originUrl?.trim() ?? ''
+    if (origin.length === 0) throw new Error('originUrl is not configured')
+    return submitOriginSuggestion(origin, input)
+  }
 
   /**
    * Return a cached snapshot, serving stale data while a background refresh runs.
@@ -81,6 +96,7 @@ export class LeaderboardCatalog {
       incomplete: pass.incomplete,
       excludes: this.config.excludes,
       access,
+      cardBase: this.config.originUrl,
       snapshotAccess: {
         mode: access.mode,
         apiUsed: pass.apiUsed,

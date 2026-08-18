@@ -42,7 +42,8 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 默认 `access: auto`：先直连 `api.github.com`，失败再走公开代理（如 `ghfast.top`）。
 
 - **看榜**：Host 拉目录时自动回退，不需要你先能打开 GitHub。
-- **打开仓库**：默认走网页镜像 `kkgithub.com`（可改 `githubHtmlBase`）。
+- **打开仓库**：官方 `https://github.com/owner/repo`。像 kkgithub.com 这种换域名镜像，多数仓库直接 404，不再使用。
+- **详情**：托管 API 上的说明页（`/r/owner/repo`），带简介和能用的代理克隆命令。
 - **复制安装 / 解读**：除了官方 `github:owner/repo`，还会带上「代理克隆 + 本地安装」命令。
 
 **Token 只发给官方 API，不会经过公共代理。** 公共镜像是第三方服务，可能失效或被滥用，只当你打不开 GitHub 时使用。
@@ -54,7 +55,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
   config:
     access: auto          # auto | direct | proxy
     githubApiBase: https://your-proxy.example/https://api.github.com
-    githubHtmlBase: https://kkgithub.com
+    githubHtmlBase: https://github.com
     githubCloneProxy: https://ghfast.top/
 ```
 
@@ -78,7 +79,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 
 ## 配置
 
-榜单默认先读托管 API `http://101.34.27.122:3091`（数据在服务器 MySQL），失败再回退 GitHub。推荐榜只存在这份数据库里。公开查询：`GET /v1/leaderboard`、`GET /v1/health`。
+榜单默认先读托管 API `http://101.34.27.122:3091`（数据在服务器 MySQL），失败再回退 GitHub。推荐榜只存在这份数据库里。公开查询：`GET /v1/leaderboard`、`GET /v1/health`、`GET /r/owner/repo`（仓库详情页）、`POST /v1/suggest`（推荐入口）。推荐榜里可以直接提交；已在目录中的插件会马上上榜，其他先入库等审核。
 
 增加一条推荐（需要服务器上的 `ADMIN_TOKEN`）：
 

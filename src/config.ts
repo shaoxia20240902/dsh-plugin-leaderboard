@@ -12,7 +12,7 @@ export interface Config {
   access: string
   /** Extra API origins, comma-separated. Official or `https://<proxy>/https://api.github.com`. */
   githubApiBase?: string
-  /** Website used by「打开仓库」. Default kkgithub.com unless access=direct. */
+  /** Website used by「打开仓库」. Default is official github.com. */
   githubHtmlBase?: string
   /** Prefix prepended to `https://github.com/owner/repo.git` for clone/install. */
   githubCloneProxy?: string

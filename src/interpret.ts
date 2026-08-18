@@ -7,6 +7,7 @@ export type InterpretTarget = Pick<PluginRepo, 'fullName' | 'name' | 'url' | 'de
 export interface InterpretAccess {
   readonly htmlBase?: string
   readonly cloneProxy?: string
+  readonly cardUrl?: string
 }
 
 /**
@@ -18,14 +19,15 @@ export function interpretPrompt(repo: InterpretTarget, access: InterpretAccess =
   const cloneDir = `/tmp/dsh-read-${repo.name}`
   const htmlBase = access.htmlBase ?? DEFAULT_HTML_MIRROR
   const cloneProxy = access.cloneProxy ?? DEFAULT_CLONE_PROXIES[0]
-  const mirror = browseUrl(repo.fullName, htmlBase)
+  const official = browseUrl(repo.fullName, htmlBase)
+  const card = access.cardUrl
   const viaProxy = cloneUrl(repo.fullName, cloneProxy)
   return [
     `请解读这个 DeepSeek Harness 社区插件。先把它 clone 到临时目录，读完 README、package.json、cordis.patch.yml 和 src 入口，再用大白话讲给我听，让我读完就知道它是干什么的、值不值得装。`,
     ``,
     `仓库：${repo.fullName}`,
-    `地址：${repo.url}`,
-    `镜像（打不开 GitHub 时用）：${mirror}`,
+    `地址：${official}`,
+    ...(card !== undefined && card !== official ? [`详情页（打不开 GitHub 时用）：${card}`] : []),
     `简介：${description}`,
     `Star：${repo.stars}`,
     `克隆：git clone --depth 1 ${viaProxy} ${cloneDir}`,
