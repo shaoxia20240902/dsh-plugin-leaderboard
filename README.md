@@ -60,9 +60,10 @@ Default `access: auto`: try `api.github.com` first, then public HTTPS proxies (f
 
 ## Ranking
 
-- **Hottest** — `stargazers_count` descending.
-- **Newest** — `created_at` descending.
-- **On fire** — `(stars + 0.5 * forks) / age_days * (1 + 7 / (days_since_update + 1))`, top 10.
+- **Hottest** — `ln(1+stars) + 0.55 ln(1+forks) + 0.6×freshness + 0.4×DSH relevance − stale penalty`.
+- **Newest** — recency of creation raised to 1.8, times a traction term so empty shells lose to same-week repos that already have stars.
+- **On fire** — HN-style gravity `(stars + 0.65 forks) / (age+2)^1.55`, times recent motion. Top 10.
+- **Picks** — curated in MySQL.
 
 The catalog merges a few GitHub search pages (stars + recently updated), then drops `deepseek-ai/deepseek-harness`, forks, and archived repos. Results are cached for 10 minutes.
 

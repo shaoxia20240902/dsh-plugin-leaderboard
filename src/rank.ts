@@ -3,6 +3,9 @@ import {
   type AccessLinks, type SnapshotAccess,
 } from './access.ts'
 import { interpretPrompt } from './interpret.ts'
+import { heatScore, pickBoards } from './score.ts'
+
+export { fireScore, heatScore, hotScore, newScore } from './score.ts'
 import {
   DEFAULT_EXCLUDES,
   FIRE_LIMIT,
@@ -15,44 +18,24 @@ import {
   type RankedPlugin,
 } from './types.ts'
 
-const MS_PER_DAY = 86_400_000
-
-/** Titles and one-line explanations for the three boards. */
+/** Titles and one-line explanations for the boards. */
 export const BOARD_COPY: Record<BoardId, { title: string; description: string }> = {
   hot: {
     title: '最热',
-    description: '按 GitHub star 数从高到低，看长期人气最高的插件。',
+    description: '长期影响力：star/fork 取对数，叠加是否还在维护、是不是真 DSH 插件。',
   },
   new: {
     title: '最新',
-    description: '按仓库创建时间从新到旧，看刚进生态的插件。',
+    description: '新锐榜：越新越好，同样新的仓库里已经有人用的排前面。',
   },
   fire: {
     title: '最火 Top 10',
-    description: '按星标密度和近期活跃度打分，取当前最火的 10 个。',
+    description: '爆发力：单位时间涨星（重力衰减）× 近期是否还在动。',
   },
   recommend: {
     title: '推荐',
     description: '人工精选、适合先装的插件。',
   },
-}
-
-/**
- * Heat score: stars per day of age, boosted when the repo was updated recently.
- * A week-old 70-star plugin outranks a year-old 200-star plugin that went quiet.
- */
-export function heatScore(repo: PluginRepo, nowMs: number): number {
-  const created = Date.parse(repo.createdAt)
-  const updated = Date.parse(repo.updatedAt)
-  const ageDays = Number.isFinite(created)
-    ? Math.max((nowMs - created) / MS_PER_DAY, 1)
-    : 365
-  const recencyDays = Number.isFinite(updated)
-    ? Math.max((nowMs - updated) / MS_PER_DAY, 0.25)
-    : 365
-  const density = (repo.stars + repo.forks * 0.5) / ageDays
-  const recencyBoost = 1 + 7 / (recencyDays + 1)
-  return density * recencyBoost
 }
 
 /** Ready-to-run install command for one GitHub-hosted plugin. */
@@ -75,20 +58,6 @@ function decorate(
     interpret: interpretPrompt(repo, { htmlBase, cloneProxy }),
     mirrorUrl: browseUrl(repo.fullName, htmlBase),
   }))
-}
-
-function compareStars(left: PluginRepo, right: PluginRepo): number {
-  return right.stars - left.stars || right.forks - left.forks
-    || left.fullName.localeCompare(right.fullName)
-}
-
-function compareCreated(left: PluginRepo, right: PluginRepo): number {
-  return Date.parse(right.createdAt) - Date.parse(left.createdAt)
-    || compareStars(left, right)
-}
-
-function compareHeat(left: PluginRepo, right: PluginRepo, nowMs: number): number {
-  return heatScore(right, nowMs) - heatScore(left, nowMs) || compareStars(left, right)
 }
 
 /** Drop archived repos, forks, and the configured exclude list. */
@@ -146,14 +115,14 @@ export function buildLeaderboard(
 ): LeaderboardSnapshot {
   const nowMs = options.nowMs ?? Date.now()
   const catalog = catalogize(repos, options.excludes)
-  const hotLimit = options.hotLimit ?? HOT_LIMIT
-  const newLimit = options.newLimit ?? NEW_LIMIT
-  const fireLimit = options.fireLimit ?? FIRE_LIMIT
-  const hot = [...catalog].sort(compareStars).slice(0, hotLimit)
-  const newest = [...catalog].sort(compareCreated).slice(0, newLimit)
-  const fire = [...catalog]
-    .sort((left, right) => compareHeat(left, right, nowMs))
-    .slice(0, fireLimit)
+  const picked = pickBoards(catalog, nowMs, {
+    hot: options.hotLimit ?? HOT_LIMIT,
+    newest: options.newLimit ?? NEW_LIMIT,
+    fire: options.fireLimit ?? FIRE_LIMIT,
+  })
+  const hot = picked.hot
+  const newest = picked.newest
+  const fire = picked.fire
   return {
     topic: options.topic,
     fetchedAt: options.fetchedAt ?? new Date(nowMs).toISOString(),

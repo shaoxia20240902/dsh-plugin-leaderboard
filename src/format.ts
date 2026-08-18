@@ -43,6 +43,7 @@ export function formatLeaderboard(snapshot: LeaderboardSnapshot, rawBoard?: stri
     `最热：${BOARD_COPY.hot.description}`,
     `最新：${BOARD_COPY.new.description}`,
     `最火：${BOARD_COPY.fire.description}`,
+    `推荐：${BOARD_COPY.recommend.description}`,
     '',
     '侧边栏点「解读」会复制一段提示词，粘到对话框即可让智能体 clone 仓库并用大白话讲解。',
     '打不开 GitHub 时：打开仓库走网页镜像；复制安装里带有代理克隆后再本地安装的命令。',

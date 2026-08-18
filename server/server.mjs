@@ -4,6 +4,7 @@
  */
 import http from 'node:http'
 import { createConnection } from 'mysql2/promise'
+import { fireScore, pickBoards } from './score.mjs'
 
 const PORT = Number(process.env.PORT ?? 3090)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? ''
@@ -97,16 +98,8 @@ function interpretPrompt(repo) {
   ].join('\n')
 }
 
-function heatScore(repo, nowMs) {
-  const created = Date.parse(repo.createdAt)
-  const updated = Date.parse(repo.updatedAt)
-  const ageDays = Number.isFinite(created) ? Math.max((nowMs - created) / 86_400_000, 1) : 365
-  const recencyDays = Number.isFinite(updated) ? Math.max((nowMs - updated) / 86_400_000, 0.25) : 365
-  return ((repo.stars + repo.forks * 0.5) / ageDays) * (1 + 7 / (recencyDays + 1))
-}
-
-function decorate(row, rank, extra = {}) {
-  const repo = {
+function rowToRepo(row) {
+  return {
     fullName: row.full_name ?? row.fullName,
     name: row.name,
     owner: row.owner,
@@ -120,10 +113,14 @@ function decorate(row, rank, extra = {}) {
     archived: Number(row.archived ?? 0) === 1,
     fork: Number(row.is_fork ?? row.fork ?? 0) === 1,
   }
+}
+
+function decorate(row, rank, extra = {}) {
+  const repo = rowToRepo(row)
   return {
     ...repo,
     rank,
-    heat: Number(row.heat ?? heatScore(repo, Date.now())),
+    heat: Number(row.heat ?? fireScore(repo, Date.now())),
     install: installCommand(repo.fullName),
     interpret: interpretPrompt(repo),
     mirrorUrl: browseUrl(repo.fullName),
@@ -192,7 +189,7 @@ async function upsertPlugins(conn, repos) {
     if (seen.has(repo.fullName) || repo.archived || repo.fork) continue
     if (repo.fullName === 'deepseek-ai/deepseek-harness') continue
     seen.add(repo.fullName)
-    const heat = heatScore(repo, now)
+    const heat = fireScore(repo, now)
     await conn.execute(
       `INSERT INTO plugins
         (full_name, name, owner, url, description, stars, forks, created_at, updated_at, language, archived, is_fork, heat, fetched_at)
@@ -233,15 +230,11 @@ function board(id, title, description, items) {
 }
 
 async function loadSnapshot(conn) {
-  const [hotRows] = await conn.query(
-    'SELECT * FROM plugins WHERE archived=0 AND is_fork=0 ORDER BY stars DESC, forks DESC LIMIT 20',
+  const [allRows] = await conn.query(
+    'SELECT * FROM plugins WHERE archived=0 AND is_fork=0',
   )
-  const [newRows] = await conn.query(
-    'SELECT * FROM plugins WHERE archived=0 AND is_fork=0 ORDER BY created_at DESC, stars DESC LIMIT 20',
-  )
-  const [fireRows] = await conn.query(
-    'SELECT * FROM plugins WHERE archived=0 AND is_fork=0 ORDER BY heat DESC, stars DESC LIMIT 10',
-  )
+  const catalog = allRows.map(rowToRepo)
+  const picked = pickBoards(catalog, Date.now(), { hot: 20, newest: 20, fire: 10 })
   const [recRows] = await conn.query(
     `SELECT r.rank_no, r.reason, p.*
      FROM recommendations r
@@ -282,9 +275,9 @@ async function loadSnapshot(conn) {
       proxied: true,
     },
     boards: {
-      hot: board('hot', '最热', '按 GitHub star 数从高到低。', hotRows.map((row, i) => decorate(row, i + 1))),
-      new: board('new', '最新', '按仓库创建时间从新到旧。', newRows.map((row, i) => decorate(row, i + 1))),
-      fire: board('fire', '最火 Top 10', '按星标密度和近期活跃度取前 10。', fireRows.map((row, i) => decorate(row, i + 1))),
+      hot: board('hot', '最热', '长期影响力：star/fork 取对数，叠加是否还在维护、是不是真 DSH 插件。', picked.hot.map((row, i) => decorate(row, i + 1))),
+      new: board('new', '最新', '新锐榜：越新越好，同样新的仓库里已经有人用的排前面。', picked.newest.map((row, i) => decorate(row, i + 1))),
+      fire: board('fire', '最火 Top 10', '爆发力：单位时间涨星（重力衰减）× 近期是否还在动。', picked.fire.map((row, i) => decorate(row, i + 1))),
       recommend: board('recommend', '推荐', '人工精选、适合先装的插件。', recommendItems),
     },
   }

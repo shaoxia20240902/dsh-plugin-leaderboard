@@ -69,9 +69,10 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 
 ## 排名规则
 
-- **最热** — 按 `stargazers_count` 降序。
-- **最新** — 按 `created_at` 降序。
-- **最火** — `(stars + 0.5 * forks) / 上线天数 * (1 + 7 / (距上次更新天数 + 1))`，取 Top 10。
+- **最热** — `ln(1+stars) + 0.55 ln(1+forks) + 0.6×维护新鲜度 + 0.4×DSH 相关度 − 停更惩罚`。对数压住十万 star 碾压；停更超过 180 天减分。
+- **最新** — `(1 / (1 + 上线天数/6))^1.8 × (1 + 0.9 ln(1+stars) + 0.28 ln(1+forks))`。越新越好，但空壳排在「同样新、已有人 star」的后面。
+- **最火** — `(stars + 0.65 forks) / (上线天数 + 2)^1.55 × (1 + 1.2×新鲜度) × (1 + 0.28×相关度)`，取 Top 10。类似 HN 热榜：短期涨得快、最近还在动的往前排。
+- **推荐** — 人工精选，存在 MySQL。
 
 目录会合并若干页 GitHub 搜索（按 star、按最近更新），并去掉 `deepseek-ai/deepseek-harness`、fork 和已归档仓库。成功结果缓存 10 分钟。
 

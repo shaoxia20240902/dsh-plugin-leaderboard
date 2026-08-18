@@ -51,16 +51,22 @@ describe('heatScore', () => {
 })
 
 describe('buildLeaderboard', () => {
-  it('builds 最热 by stars, 最新 by createdAt, and 最火 as top 10', () => {
+  it('builds 最热 / 最新 / 最火 from the composite scores', () => {
     const repos = [
       repo({ fullName: 'acme/old-star', stars: 500, createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-06-01T00:00:00Z' }),
       repo({ fullName: 'acme/brand-new', stars: 3, createdAt: '2026-08-17T00:00:00Z', updatedAt: '2026-08-17T12:00:00Z' }),
-      repo({ fullName: 'acme/viral', stars: 90, createdAt: '2026-08-10T00:00:00Z', updatedAt: '2026-08-18T00:00:00Z' }),
+      repo({
+        fullName: 'acme/viral-dsh',
+        stars: 90,
+        createdAt: '2026-08-10T00:00:00Z',
+        updatedAt: '2026-08-18T00:00:00Z',
+        description: 'DeepSeek Harness plugin',
+      }),
     ]
     const snapshot = buildLeaderboard(repos, { topic: 'dsh-plugin', nowMs: NOW })
     expect(snapshot.boards.hot.items[0]?.fullName).toBe('acme/old-star')
     expect(snapshot.boards.new.items[0]?.fullName).toBe('acme/brand-new')
-    expect(snapshot.boards.fire.items[0]?.fullName).toBe('acme/viral')
+    expect(snapshot.boards.fire.items[0]?.fullName).toBe('acme/viral-dsh')
     expect(snapshot.boards.fire.items).toHaveLength(3)
     expect(snapshot.boards.hot.items[0]?.install).toBe(installCommand('acme/old-star'))
   })
