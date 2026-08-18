@@ -1,0 +1,6 @@
+# Inserts the dual-face plugin into the profile: the node half registers the
+# tool, /leaderboard command, and /dsh-plugin-leaderboard HTTP route; the
+# dsh.client declaration loads the sidebar panel in the Web GUI.
+- insert:
+    - id: dsh-plugin-leaderboard
+      name: dsh-plugin-leaderboard
