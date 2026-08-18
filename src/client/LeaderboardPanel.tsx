@@ -1,24 +1,45 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { browseUrl, isProxiedApi, resolveAccess } from '../access.ts'
 import { fetchCatalog } from '../github.ts'
 import { interpretPrompt } from '../interpret.ts'
-import { fetchOriginSnapshot } from '../origin.ts'
+import { fetchOriginSnapshot, looksLikeSnapshot } from '../origin.ts'
 import { buildLeaderboard } from '../rank.ts'
-import { DEFAULT_TOPIC, type BoardId, type LeaderboardSnapshot, type RankedPlugin } from '../types.ts'
+import { DEFAULT_ORIGIN_URL, DEFAULT_TOPIC, type BoardId, type LeaderboardSnapshot, type RankedPlugin } from '../types.ts'
 import type { LeaderboardKey } from './locales.ts'
 import { ensureLeaderboardStyles } from './styles.ts'
 
 const HOST_PATH = '/dsh-plugin-leaderboard'
+const CACHE_KEY = 'dsh-plugin-leaderboard-cache'
 
 export interface LeaderboardPanelProps {
   readonly wide: boolean
   readonly t: (key: LeaderboardKey, params?: Record<string, string | number>) => string
 }
 
-type ViewState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'error'; readonly message: string }
-  | { readonly status: 'ready'; readonly snapshot: LeaderboardSnapshot }
+let memoryCache: LeaderboardSnapshot | undefined
+
+function readCachedSnapshot(): LeaderboardSnapshot | undefined {
+  if (memoryCache !== undefined && looksLikeSnapshot(memoryCache)) return memoryCache
+  if (typeof sessionStorage === 'undefined') return undefined
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY)
+    if (raw === null) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    return looksLikeSnapshot(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function remember(snapshot: LeaderboardSnapshot): void {
+  memoryCache = snapshot
+  if (typeof sessionStorage === 'undefined') return
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Quota or private mode — in-memory cache is enough for this tab.
+  }
+}
 
 function TrophyIcon(): ReactElement {
   return (
@@ -35,16 +56,26 @@ function TrophyIcon(): ReactElement {
 }
 
 async function loadSnapshot(refresh: boolean): Promise<LeaderboardSnapshot> {
+  const timeoutMs = refresh ? 80_000 : 12_000
   try {
-    const response = await fetch(`${HOST_PATH}${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' })
-    if (response.ok) return await response.json() as LeaderboardSnapshot
+    const response = await fetch(`${HOST_PATH}${refresh ? '?refresh=1' : ''}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (response.ok) {
+      const payload: unknown = await response.json()
+      if (looksLikeSnapshot(payload)) return payload
+    }
   } catch {
     // Host route missing — try the hosted API, then GitHub.
   }
   try {
-    return await fetchOriginSnapshot('http://101.34.27.122:3091')
+    return await fetchOriginSnapshot(DEFAULT_ORIGIN_URL, {
+      refresh,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
   } catch {
-    // Fall through to GitHub.
+    // Fall through to GitHub only when both catalog endpoints failed.
   }
   const access = resolveAccess({ access: 'auto' })
   const pass = await fetchCatalog({
@@ -75,6 +106,14 @@ function ageLabel(iso: string): string {
   if (days < 30) return `${days}d`
   if (days < 365) return `${Math.round(days / 30)}mo`
   return `${(days / 365).toFixed(1)}y`
+}
+
+function formatWhen(iso: string): string {
+  const stamp = Date.parse(iso)
+  if (!Number.isFinite(stamp)) return iso
+  const date = new Date(stamp)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 async function writeClipboard(text: string): Promise<boolean> {
@@ -140,37 +179,63 @@ function PluginRow({
   )
 }
 
-/** Sidebar footer action: a trophy button that opens the three-board panel. */
+/** Sidebar footer action: a trophy button that opens the four-board panel. */
 export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactElement {
+  const cached = readCachedSnapshot()
   const [open, setOpen] = useState(false)
   const [board, setBoard] = useState<BoardId>('hot')
-  const [state, setState] = useState<ViewState>({ status: 'loading' })
-  const [request, setRequest] = useState(0)
+  const [snapshot, setSnapshot] = useState<LeaderboardSnapshot | undefined>(cached)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(cached === undefined)
+  const [refreshing, setRefreshing] = useState(false)
+  const [note, setNote] = useState<LeaderboardKey | null>(null)
+  const [generation, setGeneration] = useState(0)
+  const snapshotRef = useRef(snapshot)
+  const wantRefreshRef = useRef(false)
+  snapshotRef.current = snapshot
 
   useEffect(() => { ensureLeaderboardStyles() }, [])
 
   useEffect(() => {
     if (!open) return
     let current = true
-    setState({ status: 'loading' })
-    void loadSnapshot(request > 0).then(
-      (snapshot) => { if (current) setState({ status: 'ready', snapshot }) },
-      (error: unknown) => {
-        if (current) {
-          setState({
-            status: 'error',
-            message: error instanceof Error ? error.message : String(error),
-          })
+    const refresh = wantRefreshRef.current
+    const hasData = snapshotRef.current !== undefined
+    if (!hasData) setLoading(true)
+    else if (refresh) setRefreshing(true)
+
+    void loadSnapshot(refresh).then(
+      (next) => {
+        if (!current) return
+        wantRefreshRef.current = false
+        remember(next)
+        setSnapshot(next)
+        setError(null)
+        setLoading(false)
+        setRefreshing(false)
+        const status = next.refresh?.status
+        if (status === 'busy') setNote('syncBusy')
+        else if (status === 'cooldown') setNote('syncCooldown')
+        else setNote(null)
+      },
+      (cause: unknown) => {
+        if (!current) return
+        wantRefreshRef.current = false
+        setLoading(false)
+        setRefreshing(false)
+        if (snapshotRef.current === undefined) {
+          setError(cause instanceof Error ? cause.message : String(cause))
         }
       },
     )
     return () => { current = false }
-  }, [open, request])
+  }, [open, generation])
 
   const translate = (key: LeaderboardKey, params?: Record<string, string | number>): string =>
     interpolate(t(key, params), params)
 
-  const items = state.status === 'ready' ? (state.snapshot.boards[board]?.items ?? []) : []
+  const items = snapshot?.boards[board]?.items ?? []
+  const busy = loading || refreshing
 
   return (
     <div className={wide ? 'dsh-lb-layer' : 'dsh-lb-layer is-rail'}>
@@ -181,17 +246,23 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
               <span className="dsh-lb-title">{translate('title')}</span>
               <span className="dsh-lb-sub">
                 {translate('subtitle')}
-                {state.status === 'ready' ? ` · ${translate('sample', { total: state.snapshot.total })}` : ''}
+                {snapshot !== undefined ? ` · ${translate('sample', { total: snapshot.total })}` : ''}
+                {snapshot !== undefined ? ` · ${translate('updatedAt', { time: formatWhen(snapshot.fetchedAt) })}` : ''}
               </span>
             </div>
             <button
               type="button"
               className="dsh-lb-refresh"
-              onClick={() => { setRequest(value => value + 1) }}
+              disabled={busy}
+              onClick={() => {
+                wantRefreshRef.current = true
+                setGeneration(value => value + 1)
+              }}
             >
-              {translate('refresh')}
+              {refreshing ? translate('refreshing') : translate('refresh')}
             </button>
           </header>
+          {note !== null && <p className="dsh-lb-banner">{translate(note)}</p>}
           <div className="dsh-lb-tabs" role="tablist">
             {(['hot', 'new', 'fire', 'recommend'] as const).map((id) => (
               <button
@@ -208,22 +279,22 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
             ))}
           </div>
           <div className="dsh-lb-body">
-            {state.status === 'loading' && <p className="dsh-lb-note">{translate('loading')}</p>}
-            {state.status === 'error' && (
+            {loading && snapshot === undefined && <p className="dsh-lb-note">{translate('loading')}</p>}
+            {error !== null && snapshot === undefined && (
               <p className="dsh-lb-error" role="alert">
-                {translate('error')} {state.message}
+                {translate('error')} {error}
               </p>
             )}
-            {state.status === 'ready' && items.length === 0 && <p className="dsh-lb-note">{translate('empty')}</p>}
-            {state.status === 'ready' && items.length > 0 && (
+            {snapshot !== undefined && items.length === 0 && <p className="dsh-lb-note">{translate('empty')}</p>}
+            {snapshot !== undefined && items.length > 0 && (
               <ol className="dsh-lb-list">
                 {items.map(item => <PluginRow key={item.fullName} item={item} t={translate} />)}
               </ol>
             )}
           </div>
           <footer className="dsh-lb-foot">
-            {state.status === 'ready' && state.snapshot.access?.proxied ? `${translate('proxied')} ` : ''}
-            {state.status === 'ready' && state.snapshot.incomplete ? `${translate('incomplete')} ` : ''}
+            {snapshot?.access?.proxied === true ? `${translate('proxied')} ` : ''}
+            {snapshot?.incomplete === true ? `${translate('incomplete')} ` : ''}
             {translate('heatHint')}
           </footer>
         </section>

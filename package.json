@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-leaderboard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness plugin leaderboard: 最热 / 最新 / 最火 Top 10 from the GitHub dsh-plugin topic, visible in the Web UI.",
   "type": "module",
   "main": "lib/index.js",

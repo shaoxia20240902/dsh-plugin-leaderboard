@@ -16,6 +16,8 @@ export const LEADERBOARD_CSS = `
 .dsh-lb-sub{display:block;margin-top:2px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 .dsh-lb-refresh{flex:none;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
 .dsh-lb-refresh:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}
+.dsh-lb-refresh:disabled{opacity:.55;cursor:default}
+.dsh-lb-banner{flex:none;margin:0;padding:6px 12px 0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 .dsh-lb-tabs{flex:none;display:flex;gap:4px;padding:8px 12px 0}
 .dsh-lb-tab{flex:1;height:32px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}
 .dsh-lb-tab[data-active]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font-weight:600}

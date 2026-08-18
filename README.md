@@ -65,7 +65,7 @@ Default `access: auto`: try `api.github.com` first, then public HTTPS proxies (f
 - **On fire** — HN-style gravity `(stars + 0.65 forks) / (age+2)^1.55`, times recent motion. Top 10.
 - **Picks** — curated in MySQL.
 
-The catalog merges a few GitHub search pages (stars + recently updated), then drops `deepseek-ai/deepseek-harness`, forks, and archived repos. Results are cached for 10 minutes.
+The catalog merges a few GitHub search pages (stars + recently updated), then drops `deepseek-ai/deepseek-harness`, forks, and archived repos. The hosted API stores that catalog in MySQL, refreshes it every 30 minutes, and serves the sidebar from the database. Opening the panel never waits on GitHub. A manual refresh asks the origin to sync under `GET_LOCK`; concurrent clicks join or keep the last snapshot. The host process also keeps a short in-memory copy (stale-while-revalidate).
 
 ## Configuration
 
@@ -76,7 +76,7 @@ Optional `cordis.yml` / profile patch on the `dsh-plugin-leaderboard` row:
   config:
     githubToken: # or set GITHUB_TOKEN / GH_TOKEN
     topic: dsh-plugin
-    cacheTtlMs: 600000
+    cacheTtlMs: 300000
     starPages: 3
     updatedPages: 2
     excludes:

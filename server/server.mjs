@@ -5,6 +5,12 @@
 import http from 'node:http'
 import { createConnection } from 'mysql2/promise'
 import { fireScore, pickBoards } from './score.mjs'
+import {
+  AUTO_INTERVAL_MS,
+  MIN_MANUAL_INTERVAL_MS,
+  SYNC_LOCK,
+  decideSync,
+} from './sync-policy.mjs'
 
 const PORT = Number(process.env.PORT ?? 3090)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? ''
@@ -246,6 +252,12 @@ async function loadSnapshot(conn) {
   const [countRows] = await conn.query('SELECT COUNT(*) AS n FROM plugins WHERE archived=0 AND is_fork=0')
   const [syncRows] = await conn.query("SELECT v FROM meta WHERE k='last_sync'")
   const [apiRows] = await conn.query("SELECT v FROM meta WHERE k='api_used'")
+  const [statusRows] = await conn.query("SELECT v FROM meta WHERE k='sync_status'")
+  const [lockRows] = await conn.query('SELECT IS_USED_LOCK(?) AS holder', [SYNC_LOCK])
+  const lastSync = syncRows[0]?.v ?? null
+  const lastSyncMs = lastSync ? Date.parse(lastSync) : 0
+  const ageMs = Number.isFinite(lastSyncMs) && lastSyncMs > 0 ? Date.now() - lastSyncMs : null
+  const syncing = lockRows[0]?.holder != null
   const recommendItems = recRows.map((row, index) => decorate({
     full_name: row.full_name,
     name: row.name ?? row.full_name.split('/')[1],
@@ -263,10 +275,19 @@ async function loadSnapshot(conn) {
   }, Number(row.rank_no ?? index + 1), { reason: row.reason }))
   return {
     topic: TOPIC,
-    fetchedAt: syncRows[0]?.v ?? new Date().toISOString(),
+    fetchedAt: lastSync ?? new Date().toISOString(),
     total: Number(countRows[0].n),
     incomplete: false,
     source: 'mysql',
+    refresh: {
+      status: syncing ? 'busy' : 'idle',
+      lastSync: lastSync ?? undefined,
+      syncing,
+      autoMs: AUTO_INTERVAL_MS,
+      minManualMs: MIN_MANUAL_INTERVAL_MS,
+      ageMs: ageMs ?? undefined,
+      syncStatus: statusRows[0]?.v ?? 'idle',
+    },
     access: {
       mode: 'origin',
       apiUsed: apiRows[0]?.v || 'mysql',
@@ -283,17 +304,106 @@ async function loadSnapshot(conn) {
   }
 }
 
-async function syncFromGithub() {
-  const { repos, apiUsed } = await fetchCatalog()
-  return withDb(async (conn) => {
-    const stored = await upsertPlugins(conn, repos)
-    await conn.execute(
-      'INSERT INTO meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v=VALUES(v)',
-      ['api_used', apiUsed],
-    )
-    await seedRecommend(conn)
-    return { stored, apiUsed, total: repos.length }
-  })
+async function writeMeta(conn, key, value) {
+  await conn.execute(
+    'INSERT INTO meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v=VALUES(v)',
+    [key, value],
+  )
+}
+
+async function readMeta(conn, key) {
+  const [rows] = await conn.query('SELECT v FROM meta WHERE k=?', [key])
+  return rows[0]?.v ?? null
+}
+
+/** Same-process single-flight; GET_LOCK covers cron vs HTTP across processes. */
+let syncInflight = undefined
+
+/**
+ * Pull GitHub into MySQL. Only one writer runs at a time.
+ * @param {'cron' | 'manual' | 'force'} reason
+ */
+async function trySync(reason) {
+  if (syncInflight !== undefined) {
+    try {
+      const result = await syncInflight
+      return { ...result, status: result.status === 'ok' ? 'joined' : result.status }
+    } catch (error) {
+      return {
+        started: false,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  syncInflight = (async () => {
+    const conn = await createConnection(dbConfig())
+    try {
+      const [lockRows] = await conn.query('SELECT GET_LOCK(?, 0) AS got', [SYNC_LOCK])
+      if (Number(lockRows[0].got) !== 1) {
+        return { started: false, status: 'busy' }
+      }
+      try {
+        const last = await readMeta(conn, 'last_sync')
+        const lastSyncMs = last ? Date.parse(last) : 0
+        const decision = decideSync({
+          reason,
+          lastSyncMs: Number.isFinite(lastSyncMs) ? lastSyncMs : 0,
+          nowMs: Date.now(),
+        })
+        if (decision === 'cooldown') {
+          const ageMs = Date.now() - (Number.isFinite(lastSyncMs) ? lastSyncMs : 0)
+          return {
+            started: false,
+            status: 'cooldown',
+            lastSync: last ?? undefined,
+            ageMs,
+            minAgeMs: reason === 'cron' ? AUTO_INTERVAL_MS : MIN_MANUAL_INTERVAL_MS,
+          }
+        }
+        await writeMeta(conn, 'sync_status', 'running')
+        const { repos, apiUsed } = await fetchCatalog()
+        const stored = await upsertPlugins(conn, repos)
+        await writeMeta(conn, 'api_used', apiUsed)
+        await seedRecommend(conn)
+        await writeMeta(conn, 'sync_status', 'idle')
+        return { started: true, status: 'ok', stored, apiUsed, total: repos.length }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        try {
+          await writeMeta(conn, 'sync_status', `failed:${message.slice(0, 180)}`)
+        } catch {
+          // The connection may already be dead; GET_LOCK releases on close.
+        }
+        throw error
+      } finally {
+        await conn.query('SELECT RELEASE_LOCK(?) AS released', [SYNC_LOCK])
+      }
+    } finally {
+      await conn.end()
+    }
+  })()
+
+  try {
+    return await syncInflight
+  } finally {
+    syncInflight = undefined
+  }
+}
+
+function mergeRefresh(snapshot, extra) {
+  return {
+    ...snapshot,
+    refresh: {
+      ...snapshot.refresh,
+      ...extra,
+      lastSync: extra.lastSync ?? snapshot.refresh?.lastSync,
+      syncing: extra.status === 'ok' || extra.status === 'joined' || extra.status === 'busy'
+        ? extra.status === 'busy'
+        : snapshot.refresh?.syncing === true,
+    },
+  }
 }
 
 function readJson(req) {
@@ -340,18 +450,62 @@ async function handle(req, res) {
     return
   }
   if (method === 'GET' && (url.pathname === '/' || url.pathname === '/v1/health')) {
-    send(res, 200, { ok: true, service: 'dsh-plugin-board' })
+    const info = await withDb(async (conn) => {
+      const lastSync = await readMeta(conn, 'last_sync')
+      const syncStatus = await readMeta(conn, 'sync_status')
+      const [lockRows] = await conn.query('SELECT IS_USED_LOCK(?) AS holder', [SYNC_LOCK])
+      return {
+        lastSync,
+        syncStatus: syncStatus ?? 'idle',
+        syncing: lockRows[0]?.holder != null,
+        autoMs: AUTO_INTERVAL_MS,
+        minManualMs: MIN_MANUAL_INTERVAL_MS,
+      }
+    })
+    send(res, 200, { ok: true, service: 'dsh-plugin-board', ...info })
     return
   }
   if (method === 'GET' && (url.pathname === '/v1/leaderboard' || url.pathname === '/dsh-plugin-leaderboard')) {
+    const wantRefresh = url.searchParams.get('refresh') === '1'
+    let extra
+    if (wantRefresh) {
+      try {
+        extra = await trySync('manual')
+      } catch (error) {
+        extra = {
+          started: false,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }
     const snapshot = await withDb(loadSnapshot)
-    send(res, 200, snapshot)
+    send(res, 200, extra === undefined ? snapshot : mergeRefresh(snapshot, extra))
     return
   }
   if (method === 'POST' && url.pathname === '/v1/sync') {
     if (!authorized(req)) { send(res, 401, { error: 'unauthorized' }); return }
-    const result = await syncFromGithub()
-    send(res, 200, { ok: true, ...result })
+    try {
+      const result = await trySync('force')
+      send(res, 200, { ok: true, ...result })
+    } catch (error) {
+      send(res, 502, { error: error instanceof Error ? error.message : String(error) })
+    }
+    return
+  }
+  if (method === 'POST' && url.pathname === '/v1/refresh') {
+    try {
+      const result = await trySync('manual')
+      const snapshot = await withDb(loadSnapshot)
+      send(res, 200, mergeRefresh(snapshot, result))
+    } catch (error) {
+      const snapshot = await withDb(loadSnapshot)
+      send(res, 200, mergeRefresh(snapshot, {
+        started: false,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      }))
+    }
     return
   }
   if (method === 'POST' && url.pathname === '/v1/recommend') {
@@ -388,9 +542,15 @@ async function handle(req, res) {
 }
 
 if (process.argv.includes('--sync')) {
-  const result = await syncFromGithub()
-  console.log(JSON.stringify(result))
-  process.exit(0)
+  const reason = process.argv.includes('--force') ? 'force' : 'cron'
+  try {
+    const result = await trySync(reason)
+    console.log(JSON.stringify(result))
+    process.exit(result.status === 'failed' ? 1 : 0)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
 }
 
 const server = http.createServer((req, res) => {

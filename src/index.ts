@@ -66,7 +66,7 @@ export function apply(ctx: Context, config: Config): void {
       },
       refresh: {
         type: 'boolean',
-        description: 'Bypass the 10-minute cache and refetch GitHub.',
+        description: 'Ask the hosted catalog to sync GitHub under a lock. Concurrent refreshes join or get the current MySQL snapshot.',
       },
     },
     output: {
@@ -76,7 +76,7 @@ export function apply(ctx: Context, config: Config): void {
         return [{ type: 'text', text: payload.markdown ?? JSON.stringify(value) }]
       },
     },
-    timeoutMs: 20_000,
+    timeoutMs: 60_000,
     async execute(args) {
       const snapshot = await catalog.snapshot(args.refresh === true)
       const selected = parseBoardId(args.board)

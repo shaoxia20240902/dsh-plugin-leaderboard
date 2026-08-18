@@ -38,12 +38,25 @@ export interface Board {
   readonly items: readonly RankedPlugin[]
 }
 
+/** How the hosted catalog last treated a sync request. */
+export interface RefreshMeta {
+  readonly status: 'idle' | 'ok' | 'busy' | 'cooldown' | 'failed' | 'joined' | string
+  readonly lastSync?: string
+  readonly syncing?: boolean
+  readonly autoMs?: number
+  readonly minManualMs?: number
+  readonly ageMs?: number
+  readonly error?: string
+}
+
 /** Payload served to the Web UI and returned by the tool. */
 export interface LeaderboardSnapshot {
   readonly topic: string
   readonly fetchedAt: string
   readonly total: number
   readonly incomplete: boolean
+  readonly source?: string
+  readonly refresh?: RefreshMeta
   readonly access?: {
     readonly mode: string
     readonly apiUsed: string

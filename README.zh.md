@@ -74,7 +74,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 - **最火** — `(stars + 0.65 forks) / (上线天数 + 2)^1.55 × (1 + 1.2×新鲜度) × (1 + 0.28×相关度)`，取 Top 10。类似 HN 热榜：短期涨得快、最近还在动的往前排。
 - **推荐** — 人工精选，存在 MySQL。
 
-目录会合并若干页 GitHub 搜索（按 star、按最近更新），并去掉 `deepseek-ai/deepseek-harness`、fork 和已归档仓库。成功结果缓存 10 分钟。
+目录会合并若干页 GitHub 搜索（按 star、按最近更新），并去掉 `deepseek-ai/deepseek-harness`、fork 和已归档仓库。托管 API 把这份目录写入 MySQL，每 30 分钟后台同步一次；打开侧边栏只读库，不会卡在 GitHub。手动点「刷新」才会在 `GET_LOCK` 下拉一次源站；同时有人在刷时，后来的请求直接看当前快照。Host 进程里还有一份短期内存缓存，过期后先返回旧数据再后台更新。
 
 ## 配置
 
@@ -96,7 +96,7 @@ curl -X POST http://101.34.27.122:3091/v1/recommend \
   config:
     githubToken: # 也可设环境变量 GITHUB_TOKEN / GH_TOKEN
     topic: dsh-plugin
-    cacheTtlMs: 600000
+    cacheTtlMs: 300000
     starPages: 3
     updatedPages: 2
     excludes:

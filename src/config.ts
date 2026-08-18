@@ -18,7 +18,7 @@ export interface Config {
   githubCloneProxy?: string
   /** GitHub topic that defines the catalog. */
   topic: string
-  /** How long a successful GitHub snapshot is reused. */
+  /** How long the host reuses a successful origin snapshot in memory. */
   cacheTtlMs: number
   /** Star-sorted GitHub search pages (100 repos each). */
   starPages: number
@@ -41,7 +41,7 @@ export const Config: Schema<Config> = Schema.object({
   githubHtmlBase: Schema.string(),
   githubCloneProxy: Schema.string(),
   topic: Schema.string().default(DEFAULT_TOPIC),
-  cacheTtlMs: Schema.number().default(10 * 60 * 1000),
+  cacheTtlMs: Schema.number().default(5 * 60 * 1000),
   starPages: Schema.number().default(3),
   updatedPages: Schema.number().default(2),
   excludes: Schema.array(Schema.string()).default([...DEFAULT_EXCLUDES]),

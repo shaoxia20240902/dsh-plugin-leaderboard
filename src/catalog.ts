@@ -12,10 +12,12 @@ interface CacheEntry {
 
 /**
  * In-memory leaderboard cache shared by the tool, the slash command, and the HTTP route.
+ * Reads are never blocked on GitHub when a previous snapshot exists.
  */
 export class LeaderboardCatalog {
   private cache: CacheEntry | undefined
   private inflight: Promise<LeaderboardSnapshot> | undefined
+  private inflightForce = false
 
   /**
    * @param config - plugin config captured at apply time
@@ -23,33 +25,45 @@ export class LeaderboardCatalog {
   constructor(private readonly config: Config) {}
 
   /**
-   * Return a cached snapshot or refresh from GitHub.
-   * @param force - bypass the TTL
-   * @param signal - abort the GitHub requests
+   * Return a cached snapshot, serving stale data while a background refresh runs.
+   * @param force - ask the origin to sync GitHub (locked); wait for that response
+   * @param signal - abort the in-flight request
    */
   async snapshot(force = false, signal?: AbortSignal): Promise<LeaderboardSnapshot> {
-    const now = Date.now()
-    if (!force && this.cache !== undefined && this.cache.expiresAt > now) {
+    if (!force && this.cache !== undefined) {
+      if (this.cache.expiresAt <= Date.now()) {
+        void this.startRefresh(false, signal).catch(() => undefined)
+      }
       return this.cache.snapshot
     }
-    if (this.inflight !== undefined) return this.inflight
-    this.inflight = this.refresh(signal)
-    try {
-      return await this.inflight
-    } finally {
-      this.inflight = undefined
-    }
+    return this.startRefresh(force, signal)
   }
 
-  private async refresh(signal?: AbortSignal): Promise<LeaderboardSnapshot> {
+  private startRefresh(force: boolean, signal?: AbortSignal): Promise<LeaderboardSnapshot> {
+    if (this.inflight !== undefined) {
+      if (force && !this.inflightForce) {
+        return this.inflight.then(() => this.startRefresh(true, signal))
+      }
+      if (!force && this.cache !== undefined) return Promise.resolve(this.cache.snapshot)
+      return this.inflight
+    }
+    this.inflightForce = force
+    this.inflight = this.refresh(force, signal).finally(() => {
+      this.inflight = undefined
+      this.inflightForce = false
+    })
+    return this.inflight
+  }
+
+  private async refresh(force: boolean, signal?: AbortSignal): Promise<LeaderboardSnapshot> {
     const origin = this.config.originUrl?.trim() ?? ''
     if (origin.length > 0) {
       try {
-        const remote = await fetchOriginSnapshot(origin, signal)
+        const remote = await fetchOriginSnapshot(origin, { signal, refresh: force })
         this.cache = { expiresAt: Date.now() + this.config.cacheTtlMs, snapshot: remote }
         return remote
       } catch {
-        // Fall through to a live GitHub read when the hosted API is down.
+        if (this.cache !== undefined) return this.cache.snapshot
       }
     }
     const access = resolveAccess(this.config)

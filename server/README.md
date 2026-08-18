@@ -4,8 +4,16 @@ Hosted MySQL catalog for the leaderboard plugin. The plugin reads this first so 
 
 Public:
 
-- `GET /v1/health`
-- `GET /v1/leaderboard`
+- `GET /v1/health` — last sync time and whether `GET_LOCK` is held
+- `GET /v1/leaderboard` — always reads MySQL, never GitHub
+- `GET /v1/leaderboard?refresh=1` or `POST /v1/refresh` — return the current snapshot; start a locked GitHub sync if the cooldown allows
+
+Sync rules:
+
+- Cron (`node server.mjs --sync`) writes at most once every 30 minutes.
+- A user refresh may run sooner, but not more than once every 2 minutes.
+- `GET_LOCK('dsh_plugin_board_sync', 0)` plus in-process single-flight: concurrent callers join or get `refresh.status=busy` and still see the last MySQL snapshot.
+- Admin `POST /v1/sync` (Bearer token) is `force` and still takes the same lock.
 
 Admin (Bearer token in `/opt/dsh-plugin-board/.env`):
 
