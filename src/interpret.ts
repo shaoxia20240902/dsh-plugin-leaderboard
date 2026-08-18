@@ -1,24 +1,37 @@
+import { browseUrl, cloneUrl, DEFAULT_CLONE_PROXIES, DEFAULT_HTML_MIRROR } from './access.ts'
 import type { PluginRepo } from './types.ts'
 
 /** Fields needed to fill the default interpret prompt. */
 export type InterpretTarget = Pick<PluginRepo, 'fullName' | 'name' | 'url' | 'description' | 'stars'>
 
+export interface InterpretAccess {
+  readonly htmlBase?: string
+  readonly cloneProxy?: string
+}
+
 /**
  * Default chat prompt: clone the repo, then explain it in plain language.
  * The user copies this into the Harness composer.
  */
-export function interpretPrompt(repo: InterpretTarget): string {
+export function interpretPrompt(repo: InterpretTarget, access: InterpretAccess = {}): string {
   const description = repo.description.trim().length > 0 ? repo.description.trim() : '（仓库没有写简介）'
   const cloneDir = `/tmp/dsh-read-${repo.name}`
+  const htmlBase = access.htmlBase ?? DEFAULT_HTML_MIRROR
+  const cloneProxy = access.cloneProxy ?? DEFAULT_CLONE_PROXIES[0]
+  const mirror = browseUrl(repo.fullName, htmlBase)
+  const viaProxy = cloneUrl(repo.fullName, cloneProxy)
   return [
     `请解读这个 DeepSeek Harness 社区插件。先把它 clone 到临时目录，读完 README、package.json、cordis.patch.yml 和 src 入口，再用大白话讲给我听，让我读完就知道它是干什么的、值不值得装。`,
     ``,
     `仓库：${repo.fullName}`,
     `地址：${repo.url}`,
+    `镜像（打不开 GitHub 时用）：${mirror}`,
     `简介：${description}`,
     `Star：${repo.stars}`,
-    `克隆：git clone --depth 1 ${repo.url}.git ${cloneDir}`,
+    `克隆：git clone --depth 1 ${viaProxy} ${cloneDir}`,
+    `直连克隆：git clone --depth 1 ${repo.url}.git ${cloneDir}`,
     `安装：dsh plugin --profile web add github:${repo.fullName}`,
+    `打不开 GitHub 时：git clone --depth 1 ${viaProxy} ${cloneDir} && dsh plugin --profile web add ${cloneDir}`,
     ``,
     `写作要求：`,
     `- 用中文，结论先行，像给同事口头讲，不要写成发布会稿或功能清单。`,

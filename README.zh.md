@@ -36,6 +36,36 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 
 这些仓库都是第三方代码。安装前请阅读源码，并用 `github:owner/repo#<sha>` 钉住提交。
 
+## 访问不了 GitHub 时
+
+默认 `access: auto`：先直连 `api.github.com`，失败再走公开代理（如 `ghfast.top`）。
+
+- **看榜**：Host 拉目录时自动回退，不需要你先能打开 GitHub。
+- **打开仓库**：默认走网页镜像 `kkgithub.com`（可改 `githubHtmlBase`）。
+- **复制安装 / 解读**：除了官方 `github:owner/repo`，还会带上「代理克隆 + 本地安装」命令。
+
+**Token 只发给官方 API，不会经过公共代理。** 公共镜像是第三方服务，可能失效或被滥用，只当你打不开 GitHub 时使用。
+
+自己有更稳的代理时，在 profile 的 `cordis.patch.yml` 里写：
+
+```yaml
+- id: dsh-plugin-leaderboard
+  config:
+    access: auto          # auto | direct | proxy
+    githubApiBase: https://your-proxy.example/https://api.github.com
+    githubHtmlBase: https://kkgithub.com
+    githubCloneProxy: https://ghfast.top/
+```
+
+完全直连、不用镜像：
+
+```yaml
+- id: dsh-plugin-leaderboard
+  config:
+    access: direct
+    githubHtmlBase: https://github.com
+```
+
 ## 排名规则
 
 - **最热** — 按 `stargazers_count` 降序。

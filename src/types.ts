@@ -21,6 +21,8 @@ export interface RankedPlugin extends PluginRepo {
   readonly install: string
   /** Chat prompt the user pastes so the agent explains this repo. */
   readonly interpret: string
+  /** Website URL that is more likely to open when github.com is blocked. */
+  readonly mirrorUrl: string
 }
 
 /** The three boards this plugin publishes. */
@@ -40,6 +42,13 @@ export interface LeaderboardSnapshot {
   readonly fetchedAt: string
   readonly total: number
   readonly incomplete: boolean
+  readonly access?: {
+    readonly mode: string
+    readonly apiUsed: string
+    readonly htmlBase: string
+    readonly cloneProxy: string
+    readonly proxied: boolean
+  }
   readonly boards: {
     readonly hot: Board
     readonly new: Board

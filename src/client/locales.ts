@@ -22,6 +22,7 @@ export const zh = {
   sample: '样本 {total} 个仓库',
   heatHint: '最火按星标密度和近期活跃度取 Top 10。「解读」会复制一段提示词，粘到对话框即可让智能体 clone 仓库并用大白话讲解。第三方代码，安装前请阅读源码并钉住提交。',
   incomplete: 'GitHub 标记本次搜索不完整。',
+  proxied: '本次经 GitHub 代理拉取；打开仓库走网页镜像，复制安装里带有打不开 GitHub 时的克隆命令。',
 } satisfies Record<string, string>
 
 /** Locale key union. */
@@ -51,4 +52,5 @@ export const en = {
   sample: '{total} repositories sampled',
   heatHint: 'On fire is the top 10 by star density and recent activity. Explain copies a prompt you paste into the chat so the agent clones the repo and walks through it. Third-party code — review the source and pin a commit.',
   incomplete: 'GitHub marked this search incomplete.',
+  proxied: 'Fetched through a GitHub proxy. Open uses a web mirror; Copy install includes a clone-via-proxy command.',
 } satisfies Record<LeaderboardKey, string>

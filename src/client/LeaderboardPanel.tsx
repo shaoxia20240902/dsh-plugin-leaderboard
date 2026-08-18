@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react'
+import { browseUrl, isProxiedApi, resolveAccess } from '../access.ts'
 import { fetchCatalog } from '../github.ts'
 import { interpretPrompt } from '../interpret.ts'
 import { buildLeaderboard } from '../rank.ts'
@@ -39,8 +40,20 @@ async function loadSnapshot(refresh: boolean): Promise<LeaderboardSnapshot> {
   } catch {
     // Fall through to a direct GitHub read when the host route is not mounted.
   }
-  const pass = await fetchCatalog({ topic: DEFAULT_TOPIC, starPages: 2, updatedPages: 1 })
-  return buildLeaderboard(pass.repos, { topic: DEFAULT_TOPIC, incomplete: pass.incomplete })
+  const access = resolveAccess({ access: 'auto' })
+  const pass = await fetchCatalog({
+    topic: DEFAULT_TOPIC, starPages: 2, updatedPages: 1, access: 'auto', apiBases: access.apiBases,
+  })
+  return buildLeaderboard(pass.repos, {
+    topic: DEFAULT_TOPIC, incomplete: pass.incomplete, access,
+    snapshotAccess: {
+      mode: access.mode,
+      apiUsed: pass.apiUsed,
+      htmlBase: access.htmlBase,
+      cloneProxy: access.cloneProxy,
+      proxied: isProxiedApi(pass.apiUsed),
+    },
+  })
 }
 
 function formatCount(value: number): string {
@@ -85,6 +98,7 @@ function PluginRow({
   t: LeaderboardPanelProps['t']
 }): ReactElement {
   const [copied, setCopied] = useState<'install' | 'interpret' | null>(null)
+  const openUrl = item.mirrorUrl || browseUrl(item.fullName)
   const copy = async (kind: 'install' | 'interpret'): Promise<void> => {
     const text = kind === 'install' ? item.install : (item.interpret || interpretPrompt(item))
     const ok = await writeClipboard(text)
@@ -96,7 +110,7 @@ function PluginRow({
     <li className="dsh-lb-row">
       <RankBadge rank={item.rank} />
       <div className="dsh-lb-main">
-        <a className="dsh-lb-name" href={item.url} target="_blank" rel="noreferrer">{item.fullName}</a>
+        <a className="dsh-lb-name" href={openUrl} target="_blank" rel="noreferrer">{item.fullName}</a>
         {item.description.length > 0 && <p className="dsh-lb-desc">{item.description}</p>}
         <div className="dsh-lb-meta">
           <span>★ {formatCount(item.stars)} {t('stars')}</span>
@@ -111,7 +125,7 @@ function PluginRow({
         <button type="button" className="dsh-lb-action dsh-lb-action-interpret" onClick={() => { void copy('interpret') }}>
           {copied === 'interpret' ? t('interpreted') : t('interpret')}
         </button>
-        <a className="dsh-lb-action" href={item.url} target="_blank" rel="noreferrer">
+        <a className="dsh-lb-action" href={openUrl} target="_blank" rel="noreferrer">
           {t('open')}
         </a>
       </div>
@@ -201,6 +215,7 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
             )}
           </div>
           <footer className="dsh-lb-foot">
+            {state.status === 'ready' && state.snapshot.access?.proxied ? `${translate('proxied')} ` : ''}
             {state.status === 'ready' && state.snapshot.incomplete ? `${translate('incomplete')} ` : ''}
             {translate('heatHint')}
           </footer>

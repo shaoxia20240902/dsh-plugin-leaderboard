@@ -36,6 +36,25 @@ Restart `dsh web`. The sidebar foot shows **插件榜**. You can also type `/lea
 
 These repositories are third-party code. Review the source and pin a commit (`github:owner/repo#<sha>`) before you install one.
 
+## When GitHub is blocked
+
+Default `access: auto`: try `api.github.com` first, then public HTTPS proxies (for example `ghfast.top`).
+
+- **Board data** — the host retries through a proxy so the sidebar still fills in.
+- **Open repository** — uses the `kkgithub.com` web mirror by default (`githubHtmlBase`).
+- **Copy install / Explain** — include a “clone via proxy, then `dsh plugin add <dir>`” command.
+
+**A GitHub token is sent only to the official API, never through a public proxy.** Public mirrors are third-party and can vanish; override them when you have a stable one:
+
+```yaml
+- id: dsh-plugin-leaderboard
+  config:
+    access: auto
+    githubApiBase: https://your-proxy.example/https://api.github.com
+    githubHtmlBase: https://kkgithub.com
+    githubCloneProxy: https://ghfast.top/
+```
+
 ## Ranking
 
 - **Hottest** — `stargazers_count` descending.

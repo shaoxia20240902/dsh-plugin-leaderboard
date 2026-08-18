@@ -1,3 +1,4 @@
+import { isProxiedApi, resolveAccess } from './access.ts'
 import { fetchCatalog, resolveGitHubToken } from './github.ts'
 import { buildLeaderboard } from './rank.ts'
 import type { Config } from './config.ts'
@@ -40,17 +41,28 @@ export class LeaderboardCatalog {
   }
 
   private async refresh(signal?: AbortSignal): Promise<LeaderboardSnapshot> {
+    const access = resolveAccess(this.config)
     const pass = await fetchCatalog({
       topic: this.config.topic,
       token: resolveGitHubToken(this.config.githubToken),
       starPages: this.config.starPages,
       updatedPages: this.config.updatedPages,
       signal,
+      access: access.mode,
+      apiBases: access.apiBases,
     })
     const snapshot = buildLeaderboard(pass.repos, {
       topic: this.config.topic,
       incomplete: pass.incomplete,
       excludes: this.config.excludes,
+      access,
+      snapshotAccess: {
+        mode: access.mode,
+        apiUsed: pass.apiUsed,
+        htmlBase: access.htmlBase,
+        cloneProxy: access.cloneProxy,
+        proxied: isProxiedApi(pass.apiUsed),
+      },
     })
     this.cache = {
       expiresAt: Date.now() + this.config.cacheTtlMs,

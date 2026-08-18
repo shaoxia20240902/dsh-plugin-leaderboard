@@ -1,3 +1,7 @@
+import {
+  browseUrl, DEFAULT_HTML_MIRROR, installCommand as buildInstall,
+  type AccessLinks, type SnapshotAccess,
+} from './access.ts'
 import { interpretPrompt } from './interpret.ts'
 import {
   DEFAULT_EXCLUDES,
@@ -48,17 +52,24 @@ export function heatScore(repo: PluginRepo, nowMs: number): number {
 }
 
 /** Ready-to-run install command for one GitHub-hosted plugin. */
-export function installCommand(fullName: string): string {
-  return `dsh plugin --profile web add github:${fullName}`
+export function installCommand(fullName: string, cloneProxy = ''): string {
+  return buildInstall(fullName, cloneProxy)
 }
 
-function decorate(repos: readonly PluginRepo[], nowMs: number): RankedPlugin[] {
+function decorate(
+  repos: readonly PluginRepo[],
+  nowMs: number,
+  access?: Pick<AccessLinks, 'htmlBase' | 'cloneProxy'>,
+): RankedPlugin[] {
+  const htmlBase = access?.htmlBase ?? DEFAULT_HTML_MIRROR
+  const cloneProxy = access?.cloneProxy ?? ''
   return repos.map((repo, index) => ({
     ...repo,
     rank: index + 1,
     heat: heatScore(repo, nowMs),
-    install: installCommand(repo.fullName),
-    interpret: interpretPrompt(repo),
+    install: installCommand(repo.fullName, cloneProxy),
+    interpret: interpretPrompt(repo, { htmlBase, cloneProxy }),
+    mirrorUrl: browseUrl(repo.fullName, htmlBase),
   }))
 }
 
@@ -98,13 +109,14 @@ function board(
   id: BoardId,
   repos: readonly PluginRepo[],
   nowMs: number,
+  access?: Pick<AccessLinks, 'htmlBase' | 'cloneProxy'>,
 ): Board {
   const copy = BOARD_COPY[id]
   return {
     id,
     title: copy.title,
     description: copy.description,
-    items: decorate(repos, nowMs),
+    items: decorate(repos, nowMs, access),
   }
 }
 
@@ -124,6 +136,8 @@ export function buildLeaderboard(
     readonly hotLimit?: number
     readonly newLimit?: number
     readonly fireLimit?: number
+    readonly access?: Pick<AccessLinks, 'htmlBase' | 'cloneProxy'>
+    readonly snapshotAccess?: SnapshotAccess
   },
 ): LeaderboardSnapshot {
   const nowMs = options.nowMs ?? Date.now()
@@ -141,10 +155,11 @@ export function buildLeaderboard(
     fetchedAt: options.fetchedAt ?? new Date(nowMs).toISOString(),
     total: catalog.length,
     incomplete: options.incomplete === true,
+    ...options.snapshotAccess === undefined ? {} : { access: options.snapshotAccess },
     boards: {
-      hot: board('hot', hot, nowMs),
-      new: board('new', newest, nowMs),
-      fire: board('fire', fire, nowMs),
+      hot: board('hot', hot, nowMs, options.access),
+      new: board('new', newest, nowMs, options.access),
+      fire: board('fire', fire, nowMs, options.access),
     },
   }
 }

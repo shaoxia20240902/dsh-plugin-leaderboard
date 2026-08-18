@@ -36,6 +36,20 @@ describe('searchPage', () => {
 })
 
 describe('fetchCatalog', () => {
+  it('falls back to a proxy when the official API is unreachable', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith('https://api.github.com')) throw new TypeError('fetch failed')
+      return new Response(JSON.stringify({
+        items: [{ full_name: 'acme/via-proxy', stargazers_count: 1, owner: { login: 'acme' } }],
+      }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const pass = await fetchCatalog({ starPages: 1, updatedPages: 1, access: 'auto' })
+    expect(pass.apiUsed).not.toBe('https://api.github.com')
+    expect(pass.repos.some(item => item.fullName === 'acme/via-proxy')).toBe(true)
+  })
+
   it('merges star-sorted and recently updated pages', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
