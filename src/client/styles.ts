@@ -34,8 +34,9 @@ export const LEADERBOARD_CSS = `
 .dsh-lb-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:2px 0 0;font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary)}
 .dsh-lb-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
 .dsh-lb-actions{display:flex;flex-direction:column;gap:4px}
-.dsh-lb-action{height:26px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
+.dsh-lb-action{height:26px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box}
 .dsh-lb-action:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}
+.dsh-lb-action-interpret{border-color:var(--dsw-alias-label-tertiary)}
 .dsh-lb-foot{flex:none;padding:8px 12px 10px;border-top:1px solid var(--dsw-alias-border-l2);font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 `.trim()
 

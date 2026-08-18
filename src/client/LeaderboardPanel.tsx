@@ -1,14 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react'
-
-async function writeClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
-}
 import { fetchCatalog } from '../github.ts'
+import { interpretPrompt } from '../interpret.ts'
 import { buildLeaderboard } from '../rank.ts'
 import { DEFAULT_TOPIC, type BoardId, type LeaderboardSnapshot, type RankedPlugin } from '../types.ts'
 import type { LeaderboardKey } from './locales.ts'
@@ -66,6 +58,15 @@ function ageLabel(iso: string): string {
   return `${(days / 365).toFixed(1)}y`
 }
 
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function interpolate(template: string, params?: Record<string, string | number>): string {
   if (params === undefined) return template
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(params[key] ?? ''))
@@ -83,12 +84,13 @@ function PluginRow({
   item: RankedPlugin
   t: LeaderboardPanelProps['t']
 }): ReactElement {
-  const [copied, setCopied] = useState(false)
-  const copy = async (): Promise<void> => {
-    const ok = await writeClipboard(item.install)
+  const [copied, setCopied] = useState<'install' | 'interpret' | null>(null)
+  const copy = async (kind: 'install' | 'interpret'): Promise<void> => {
+    const text = kind === 'install' ? item.install : (item.interpret || interpretPrompt(item))
+    const ok = await writeClipboard(text)
     if (!ok) return
-    setCopied(true)
-    window.setTimeout(() => { setCopied(false) }, 1600)
+    setCopied(kind)
+    window.setTimeout(() => { setCopied(null) }, 1600)
   }
   return (
     <li className="dsh-lb-row">
@@ -103,10 +105,13 @@ function PluginRow({
         </div>
       </div>
       <div className="dsh-lb-actions">
-        <button type="button" className="dsh-lb-action" onClick={() => { void copy() }}>
-          {copied ? t('copied') : t('copy')}
+        <button type="button" className="dsh-lb-action" onClick={() => { void copy('install') }}>
+          {copied === 'install' ? t('copied') : t('copy')}
         </button>
-        <a className="dsh-lb-action" href={item.url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+        <button type="button" className="dsh-lb-action dsh-lb-action-interpret" onClick={() => { void copy('interpret') }}>
+          {copied === 'interpret' ? t('interpreted') : t('interpret')}
+        </button>
+        <a className="dsh-lb-action" href={item.url} target="_blank" rel="noreferrer">
           {t('open')}
         </a>
       </div>

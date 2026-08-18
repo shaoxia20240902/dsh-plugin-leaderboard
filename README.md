@@ -28,7 +28,8 @@ Restart `dsh web`. The sidebar foot shows **插件榜**. You can also type `/lea
 
 ## What you get
 
-- **Sidebar panel** — three tabs, star/fork counts, copy-install, open the repo.
+- **Sidebar panel** — three tabs, star/fork counts, copy-install, **copy an interpret prompt**, open the repo.
+- **Interpret prompt** — paste it into the Harness composer. The agent clones the repo and explains it in plain language: what it is, what pain it removes, what you see after install, how to start, who should skip it.
 - **Slash command** `/leaderboard [hot|new|fire]`.
 - **Tool** `list_dsh_plugin_leaderboard` so the agent can answer ranking questions.
 - **HTTP** `GET /dsh-plugin-leaderboard` on the host (used by the panel).

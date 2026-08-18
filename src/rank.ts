@@ -1,3 +1,4 @@
+import { interpretPrompt } from './interpret.ts'
 import {
   DEFAULT_EXCLUDES,
   FIRE_LIMIT,
@@ -57,6 +58,7 @@ function decorate(repos: readonly PluginRepo[], nowMs: number): RankedPlugin[] {
     rank: index + 1,
     heat: heatScore(repo, nowMs),
     install: installCommand(repo.fullName),
+    interpret: interpretPrompt(repo),
   }))
 }
 

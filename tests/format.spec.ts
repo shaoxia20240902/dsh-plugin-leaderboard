@@ -30,5 +30,6 @@ describe('formatLeaderboard', () => {
     expect(text).not.toContain('## 最新')
     expect(text).toContain('acme/board')
     expect(text).toContain('dsh plugin --profile web add github:acme/board')
+    expect(text).toContain('解读')
   })
 })

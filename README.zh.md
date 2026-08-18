@@ -28,7 +28,8 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 
 ## 你会看到什么
 
-- **侧边栏面板**：三个页签、star / fork、复制安装命令、打开仓库。
+- **侧边栏面板**：三个页签、star / fork、复制安装、**复制解读提示词**、打开仓库。
+- **解读提示词**：粘到对话框。智能体会先 clone 仓库，再用大白话讲：它是啥、解决什么烦、装完能看到什么、怎么上手、谁不该装。
 - **斜杠命令** `/leaderboard [hot|new|fire]`。
 - **工具** `list_dsh_plugin_leaderboard`，智能体可直接查榜。
 - **HTTP** `GET /dsh-plugin-leaderboard`（面板走这条同源接口）。

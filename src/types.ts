@@ -19,6 +19,8 @@ export interface RankedPlugin extends PluginRepo {
   readonly rank: number
   readonly heat: number
   readonly install: string
+  /** Chat prompt the user pastes so the agent explains this repo. */
+  readonly interpret: string
 }
 
 /** The three boards this plugin publishes. */
