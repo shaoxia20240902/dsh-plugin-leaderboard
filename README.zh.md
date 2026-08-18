@@ -11,6 +11,7 @@ DeepSeek Harness 社区插件排行榜。它读取 GitHub 公开话题 [`dsh-plu
 | **最热** | 按 GitHub star 从高到低 |
 | **最新** | 按仓库创建时间从新到旧 |
 | **最火 Top 10** | 按星标密度和近期活跃度取前 10 |
+| **推荐** | 人工精选，存在自己的 MySQL，适合先装 |
 
 ## 安装
 
@@ -76,6 +77,17 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
 
 ## 配置
 
+榜单默认先读托管 API `http://101.34.27.122:3091`（数据在服务器 MySQL），失败再回退 GitHub。推荐榜只存在这份数据库里。公开查询：`GET /v1/leaderboard`、`GET /v1/health`。
+
+增加一条推荐（需要服务器上的 `ADMIN_TOKEN`）：
+
+```sh
+curl -X POST http://101.34.27.122:3091/v1/recommend \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "content-type: application/json" \
+  -d '{"fullName":"owner/repo","rank":6,"reason":"为什么推荐"}'
+```
+
 可在 profile 的 `cordis.patch.yml` 里覆盖 `dsh-plugin-leaderboard` 行：
 
 ```yaml
@@ -88,6 +100,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-leaderboard
     updatedPages: 2
     excludes:
       - deepseek-ai/deepseek-harness
+    originUrl: http://101.34.27.122:3091
 ```
 
 个人使用可以不配 token。刷新很勤时再配，以免撞上 GitHub 匿名限额。

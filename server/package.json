@@ -1,0 +1,14 @@
+{
+  "name": "dsh-plugin-board-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MySQL-backed leaderboard + recommend API for dsh-plugin-leaderboard",
+  "scripts": {
+    "start": "node server.mjs",
+    "sync": "node server.mjs --sync"
+  },
+  "dependencies": {
+    "mysql2": "^3.14.0"
+  }
+}

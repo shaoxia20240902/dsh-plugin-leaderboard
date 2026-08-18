@@ -31,6 +31,10 @@ export const BOARD_COPY: Record<BoardId, { title: string; description: string }>
     title: '最火 Top 10',
     description: '按星标密度和近期活跃度打分，取当前最火的 10 个。',
   },
+  recommend: {
+    title: '推荐',
+    description: '人工精选、适合先装的插件。',
+  },
 }
 
 /**
@@ -160,6 +164,7 @@ export function buildLeaderboard(
       hot: board('hot', hot, nowMs, options.access),
       new: board('new', newest, nowMs, options.access),
       fire: board('fire', fire, nowMs, options.access),
+      recommend: board('recommend', [], nowMs, options.access),
     },
   }
 }
@@ -171,5 +176,6 @@ export function parseBoardId(raw: string | undefined): BoardId | 'all' {
   if (value === 'hot' || value === '最热' || value === 'stars') return 'hot'
   if (value === 'new' || value === '最新' || value === 'newest') return 'new'
   if (value === 'fire' || value === '最火' || value === 'hotfire' || value === 'top') return 'fire'
+  if (value === 'recommend' || value === '推荐' || value === 'rec') return 'recommend'
   return 'all'
 }

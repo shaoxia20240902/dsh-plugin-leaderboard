@@ -1,5 +1,6 @@
 import { isProxiedApi, resolveAccess } from './access.ts'
 import { fetchCatalog, resolveGitHubToken } from './github.ts'
+import { fetchOriginSnapshot } from './origin.ts'
 import { buildLeaderboard } from './rank.ts'
 import type { Config } from './config.ts'
 import type { LeaderboardSnapshot } from './types.ts'
@@ -41,6 +42,16 @@ export class LeaderboardCatalog {
   }
 
   private async refresh(signal?: AbortSignal): Promise<LeaderboardSnapshot> {
+    const origin = this.config.originUrl?.trim() ?? ''
+    if (origin.length > 0) {
+      try {
+        const remote = await fetchOriginSnapshot(origin, signal)
+        this.cache = { expiresAt: Date.now() + this.config.cacheTtlMs, snapshot: remote }
+        return remote
+      } catch {
+        // Fall through to a live GitHub read when the hosted API is down.
+      }
+    }
     const access = resolveAccess(this.config)
     const pass = await fetchCatalog({
       topic: this.config.topic,

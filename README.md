@@ -11,6 +11,7 @@ Community plugin leaderboard for [DeepSeek Harness](https://github.com/deepseek-
 | **最热 / Hottest** | Most GitHub stars |
 | **最新 / Newest** | Most recently created |
 | **最火 Top 10 / On fire** | Top 10 by star density with a recency boost |
+| **推荐 / Picks** | Curated list stored in MySQL |
 
 ## Install
 
@@ -35,6 +36,8 @@ Restart `dsh web`. The sidebar foot shows **插件榜**. You can also type `/lea
 - **HTTP** `GET /dsh-plugin-leaderboard` on the host (used by the panel).
 
 These repositories are third-party code. Review the source and pin a commit (`github:owner/repo#<sha>`) before you install one.
+
+Boards load first from the hosted API `http://101.34.27.122:3091` (MySQL), then fall back to GitHub. The recommend list lives only in that database.
 
 ## When GitHub is blocked
 
@@ -77,6 +80,7 @@ Optional `cordis.yml` / profile patch on the `dsh-plugin-leaderboard` row:
     updatedPages: 2
     excludes:
       - deepseek-ai/deepseek-harness
+    originUrl: http://101.34.27.122:3091
 ```
 
 Unauthenticated GitHub search is enough for a personal install. A token raises the rate limit if you refresh often.

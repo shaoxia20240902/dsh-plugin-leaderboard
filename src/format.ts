@@ -16,7 +16,8 @@ function formatItem(item: RankedPlugin): string {
   ].join('\n')
 }
 
-function formatBoard(board: Board): string {
+function formatBoard(board: Board | undefined): string {
+  if (board === undefined) return ''
   if (board.items.length === 0) return `## ${board.title}\n\n暂无条目。`
   return [`## ${board.title}`, '', board.description, '', ...board.items.map(formatItem)].join('\n')
 }
@@ -35,7 +36,7 @@ export function formatLeaderboard(snapshot: LeaderboardSnapshot, rawBoard?: stri
     snapshot.incomplete ? 'GitHub 标记本次搜索结果不完整。' : '',
   ].filter(line => line.length > 0).join('\n')
 
-  const boards: BoardId[] = selected === 'all' ? ['hot', 'new', 'fire'] : [selected]
+  const boards: BoardId[] = selected === 'all' ? ['hot', 'new', 'fire', 'recommend'] : [selected]
   const body = boards.map(id => formatBoard(snapshot.boards[id])).join('\n\n')
   const legend = [
     '',

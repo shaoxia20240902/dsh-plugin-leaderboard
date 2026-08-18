@@ -1,5 +1,5 @@
 import Schema from 'schemastery'
-import { DEFAULT_EXCLUDES, DEFAULT_TOPIC } from './types.ts'
+import { DEFAULT_EXCLUDES, DEFAULT_ORIGIN_URL, DEFAULT_TOPIC } from './types.ts'
 
 /** Plugin configuration accepted from cordis.yml. */
 export interface Config {
@@ -26,6 +26,11 @@ export interface Config {
   updatedPages: number
   /** Repositories dropped from every board, as owner/name. */
   excludes: string[]
+  /**
+   * Hosted MySQL API. Tried first so users who cannot reach GitHub still get
+   * the boards, including the curated recommend list.
+   */
+  originUrl: string
 }
 
 /** Schemastery schema. Defaults live on the fields. */
@@ -40,4 +45,5 @@ export const Config: Schema<Config> = Schema.object({
   starPages: Schema.number().default(3),
   updatedPages: Schema.number().default(2),
   excludes: Schema.array(Schema.string()).default([...DEFAULT_EXCLUDES]),
+  originUrl: Schema.string().default(DEFAULT_ORIGIN_URL),
 })

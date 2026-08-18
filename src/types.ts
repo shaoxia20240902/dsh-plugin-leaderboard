@@ -23,10 +23,12 @@ export interface RankedPlugin extends PluginRepo {
   readonly interpret: string
   /** Website URL that is more likely to open when github.com is blocked. */
   readonly mirrorUrl: string
+  /** Why this row is on the recommend board. */
+  readonly reason?: string
 }
 
-/** The three boards this plugin publishes. */
-export type BoardId = 'hot' | 'new' | 'fire'
+/** The boards this plugin publishes. */
+export type BoardId = 'hot' | 'new' | 'fire' | 'recommend'
 
 /** One named board snapshot. */
 export interface Board {
@@ -53,8 +55,12 @@ export interface LeaderboardSnapshot {
     readonly hot: Board
     readonly new: Board
     readonly fire: Board
+    readonly recommend?: Board
   }
 }
+
+/** Default hosted API that stores catalogs in MySQL. */
+export const DEFAULT_ORIGIN_URL = 'http://101.34.27.122:3091'
 
 /** Default GitHub topic used as the catalog source. */
 export const DEFAULT_TOPIC = 'dsh-plugin'

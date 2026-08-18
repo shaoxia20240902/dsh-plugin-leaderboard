@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react'
 import { browseUrl, isProxiedApi, resolveAccess } from '../access.ts'
 import { fetchCatalog } from '../github.ts'
 import { interpretPrompt } from '../interpret.ts'
+import { fetchOriginSnapshot } from '../origin.ts'
 import { buildLeaderboard } from '../rank.ts'
 import { DEFAULT_TOPIC, type BoardId, type LeaderboardSnapshot, type RankedPlugin } from '../types.ts'
 import type { LeaderboardKey } from './locales.ts'
@@ -38,7 +39,12 @@ async function loadSnapshot(refresh: boolean): Promise<LeaderboardSnapshot> {
     const response = await fetch(`${HOST_PATH}${refresh ? '?refresh=1' : ''}`, { cache: 'no-store' })
     if (response.ok) return await response.json() as LeaderboardSnapshot
   } catch {
-    // Fall through to a direct GitHub read when the host route is not mounted.
+    // Host route missing — try the hosted API, then GitHub.
+  }
+  try {
+    return await fetchOriginSnapshot('http://101.34.27.122:3091')
+  } catch {
+    // Fall through to GitHub.
   }
   const access = resolveAccess({ access: 'auto' })
   const pass = await fetchCatalog({
@@ -111,7 +117,8 @@ function PluginRow({
       <RankBadge rank={item.rank} />
       <div className="dsh-lb-main">
         <a className="dsh-lb-name" href={openUrl} target="_blank" rel="noreferrer">{item.fullName}</a>
-        {item.description.length > 0 && <p className="dsh-lb-desc">{item.description}</p>}
+        {item.reason ? <p className="dsh-lb-desc">{item.reason}</p> : null}
+        {!item.reason && item.description.length > 0 && <p className="dsh-lb-desc">{item.description}</p>}
         <div className="dsh-lb-meta">
           <span>★ {formatCount(item.stars)} {t('stars')}</span>
           <span>⌥ {formatCount(item.forks)} {t('forks')}</span>
@@ -163,7 +170,7 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
   const translate = (key: LeaderboardKey, params?: Record<string, string | number>): string =>
     interpolate(t(key, params), params)
 
-  const items = state.status === 'ready' ? state.snapshot.boards[board].items : []
+  const items = state.status === 'ready' ? (state.snapshot.boards[board]?.items ?? []) : []
 
   return (
     <div className={wide ? 'dsh-lb-layer' : 'dsh-lb-layer is-rail'}>
@@ -186,7 +193,7 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
             </button>
           </header>
           <div className="dsh-lb-tabs" role="tablist">
-            {(['hot', 'new', 'fire'] as const).map((id) => (
+            {(['hot', 'new', 'fire', 'recommend'] as const).map((id) => (
               <button
                 key={id}
                 type="button"
