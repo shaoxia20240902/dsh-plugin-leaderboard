@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS meta (
   v TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS clicks (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(200) NOT NULL,
+  kind VARCHAR(16) NOT NULL,
+  ip VARCHAR(64) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  KEY idx_window (ip, full_name, kind, created_at),
+  KEY idx_rank (kind, full_name)
+);
+
 CREATE TABLE IF NOT EXISTS suggestions (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(200) NOT NULL,

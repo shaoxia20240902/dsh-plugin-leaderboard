@@ -53,36 +53,40 @@ export async function fetchOriginSnapshot(
   return payload
 }
 
-/** Result of POST /v1/suggest. */
-export interface SuggestResult {
+/** Result of POST /v1/click. */
+export interface ClickResult {
   readonly ok: boolean
   readonly status: string
   readonly fullName?: string
+  readonly kind?: string
+  readonly clicks?: number
   readonly error?: string
 }
 
 /**
- * Submit a community recommendation to the hosted API.
+ * Record an install / interpret / recommend click on the hosted API.
  * @param originUrl - e.g. http://101.34.27.122:3091
- * @param input - repo ref and reason
+ * @param input - repo and action
  */
-export async function submitOriginSuggestion(
+export async function submitOriginClick(
   originUrl: string,
-  input: { readonly fullName: string; readonly reason: string },
-): Promise<SuggestResult> {
+  input: { readonly fullName: string; readonly kind: string },
+): Promise<ClickResult> {
   const base = originUrl.replace(/\/+$/u, '')
-  const response = await fetch(`${base}/v1/suggest`, {
+  const response = await fetch(`${base}/v1/click`, {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json' },
-    body: JSON.stringify({ fullName: input.fullName, reason: input.reason }),
+    body: JSON.stringify({ fullName: input.fullName, kind: input.kind }),
     signal: AbortSignal.timeout(12_000),
   })
   const payload: unknown = await response.json().catch(() => ({}))
-  if (!isObject(payload)) throw new Error(`origin suggest HTTP ${response.status}`)
+  if (!isObject(payload)) throw new Error(`origin click HTTP ${response.status}`)
   return {
     ok: payload.ok === true,
     status: typeof payload.status === 'string' ? payload.status : (response.ok ? 'ok' : 'error'),
     fullName: typeof payload.fullName === 'string' ? payload.fullName : undefined,
+    kind: typeof payload.kind === 'string' ? payload.kind : undefined,
+    clicks: typeof payload.clicks === 'number' ? payload.clicks : undefined,
     error: typeof payload.error === 'string' ? payload.error : undefined,
   }
 }

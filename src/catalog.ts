@@ -1,6 +1,6 @@
 import { isProxiedApi, resolveAccess } from './access.ts'
 import { fetchCatalog, resolveGitHubToken } from './github.ts'
-import { fetchOriginSnapshot, submitOriginSuggestion, type SuggestResult } from './origin.ts'
+import { fetchOriginSnapshot, submitOriginClick, type ClickResult } from './origin.ts'
 import { buildLeaderboard } from './rank.ts'
 import type { Config } from './config.ts'
 import type { LeaderboardSnapshot } from './types.ts'
@@ -30,13 +30,15 @@ export class LeaderboardCatalog {
   }
 
   /**
-   * Forward a community recommendation to the hosted API.
-   * @param input - repo ref and reason
+   * Record a copy/recommend click on the hosted API.
+   * @param input - repo and action
    */
-  async suggest(input: { readonly fullName: string; readonly reason: string }): Promise<SuggestResult> {
+  async click(input: { readonly fullName: string; readonly kind: string }): Promise<ClickResult> {
     const origin = this.config.originUrl?.trim() ?? ''
     if (origin.length === 0) throw new Error('originUrl is not configured')
-    return submitOriginSuggestion(origin, input)
+    const result = await submitOriginClick(origin, input)
+    if (result.status === 'counted') this.forget()
+    return result
   }
 
   /**

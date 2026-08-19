@@ -25,10 +25,15 @@ export interface RankedPlugin extends PluginRepo {
   readonly mirrorUrl: string
   /** Why this row is on the recommend board. */
   readonly reason?: string
+  /** Copies / recommends counted for the current board. */
+  readonly clicks?: number
+  readonly installClicks?: number
+  readonly interpretClicks?: number
+  readonly recommendClicks?: number
 }
 
 /** The boards this plugin publishes. */
-export type BoardId = 'hot' | 'new' | 'fire' | 'recommend'
+export type BoardId = 'hot' | 'new' | 'fire' | 'download' | 'interpret' | 'recommend'
 
 /** One named board snapshot. */
 export interface Board {
@@ -68,6 +73,8 @@ export interface LeaderboardSnapshot {
     readonly hot: Board
     readonly new: Board
     readonly fire: Board
+    readonly download?: Board
+    readonly interpret?: Board
     readonly recommend?: Board
   }
 }

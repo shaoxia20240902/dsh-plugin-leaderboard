@@ -61,7 +61,7 @@ export function apply(ctx: Context, config: Config): void {
     parameters: {
       board: {
         type: 'string',
-        enum: ['hot', 'new', 'fire', 'recommend', 'all'] as const,
+        enum: ['hot', 'new', 'fire', 'download', 'interpret', 'recommend', 'all'] as const,
         description: 'Which board to return. Default all.',
       },
       refresh: {

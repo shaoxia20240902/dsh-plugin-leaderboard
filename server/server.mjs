@@ -11,6 +11,7 @@ import {
   SYNC_LOCK,
   decideSync,
 } from './sync-policy.mjs'
+import { CLICK_LOCK, decideClick, parseClickKind } from './click-policy.mjs'
 
 const PORT = Number(process.env.PORT ?? 3090)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? ''
@@ -173,6 +174,10 @@ function decorate(row, rank, extra = {}) {
     interpret: interpretPrompt(repo),
     mirrorUrl: cardUrl(repo.fullName),
     ...extra.reason ? { reason: extra.reason } : {},
+    ...extra.clicks !== undefined ? { clicks: Number(extra.clicks) } : {},
+    ...extra.installClicks !== undefined ? { installClicks: Number(extra.installClicks) } : {},
+    ...extra.interpretClicks !== undefined ? { interpretClicks: Number(extra.interpretClicks) } : {},
+    ...extra.recommendClicks !== undefined ? { recommendClicks: Number(extra.recommendClicks) } : {},
   }
 }
 
@@ -300,6 +305,10 @@ async function loadSnapshot(conn) {
   const lastSyncMs = lastSync ? Date.parse(lastSync) : 0
   const ageMs = Number.isFinite(lastSyncMs) && lastSyncMs > 0 ? Date.now() - lastSyncMs : null
   const syncing = lockRows[0]?.holder != null
+  const clickCounts = await loadClickCounts(conn)
+  const downloadItems = pickClickItems(allRows, clickCounts, 'install')
+  const interpretItems = pickClickItems(allRows, clickCounts, 'interpret')
+  const recommendClickItems = pickClickItems(allRows, clickCounts, 'recommend')
   const recommendItems = recRows.map((row, index) => decorate({
     full_name: row.full_name,
     name: row.name ?? row.full_name.split('/')[1],
@@ -314,7 +323,10 @@ async function loadSnapshot(conn) {
     archived: row.archived ?? 0,
     is_fork: row.is_fork ?? 0,
     heat: row.heat ?? 0,
-  }, Number(row.rank_no ?? index + 1), { reason: row.reason }))
+  }, Number(row.rank_no ?? index + 1), {
+    reason: row.reason,
+    ...tallyOf(clickCounts, row.full_name),
+  }))
   return {
     topic: TOPIC,
     fetchedAt: lastSync ?? new Date().toISOString(),
@@ -339,12 +351,69 @@ async function loadSnapshot(conn) {
       cardBase: PUBLIC_URL,
     },
     boards: {
-      hot: board('hot', '最热', '长期影响力：star/fork 取对数，叠加是否还在维护、是不是真 DSH 插件。', picked.hot.map((row, i) => decorate(row, i + 1))),
-      new: board('new', '最新', '新锐榜：越新越好，同样新的仓库里已经有人用的排前面。', picked.newest.map((row, i) => decorate(row, i + 1))),
-      fire: board('fire', '最火 Top 10', '爆发力：单位时间涨星（重力衰减）× 近期是否还在动。', picked.fire.map((row, i) => decorate(row, i + 1))),
-      recommend: board('recommend', '推荐', '人工精选、适合先装的插件。', recommendItems),
+      hot: board('hot', '最热', '长期影响力', picked.hot.map((row, i) => decorate(row, i + 1, tallyOf(clickCounts, row.fullName ?? row.full_name)))),
+      new: board('new', '最新', '最近创建', picked.newest.map((row, i) => decorate(row, i + 1, tallyOf(clickCounts, row.fullName ?? row.full_name)))),
+      fire: board('fire', '最火', '爆发速度', picked.fire.map((row, i) => decorate(row, i + 1, tallyOf(clickCounts, row.fullName ?? row.full_name)))),
+      download: board('download', '下载', '按复制安装次数', downloadItems),
+      interpret: board('interpret', '解读', '按复制解读次数', interpretItems),
+      recommend: board(
+        'recommend',
+        '推荐',
+        '按推荐点击次数',
+        mergeRecommend(recommendClickItems, recommendItems),
+      ),
     },
   }
+}
+
+async function loadClickCounts(conn) {
+  await ensureSchema(conn)
+  const [rows] = await conn.query(
+    'SELECT full_name, kind, COUNT(*) AS n FROM clicks GROUP BY full_name, kind',
+  )
+  const map = new Map()
+  for (const row of rows) {
+    const current = map.get(row.full_name) ?? { install: 0, interpret: 0, recommend: 0 }
+    if (row.kind === 'install' || row.kind === 'interpret' || row.kind === 'recommend') {
+      current[row.kind] = Number(row.n)
+    }
+    map.set(row.full_name, current)
+  }
+  return map
+}
+
+function tallyOf(counts, fullName) {
+  const tally = counts.get(fullName) ?? { install: 0, interpret: 0, recommend: 0 }
+  return {
+    installClicks: tally.install,
+    interpretClicks: tally.interpret,
+    recommendClicks: tally.recommend,
+  }
+}
+
+function mergeRecommend(clicked, curated) {
+  const seen = new Set(clicked.map(item => item.fullName))
+  const extra = curated.filter(item => !seen.has(item.fullName))
+  return [...clicked, ...extra].slice(0, 20).map((item, index) => ({ ...item, rank: index + 1 }))
+}
+
+function pickClickItems(allRows, counts, kind) {
+  const byName = new Map(allRows.map(row => [row.full_name, row]))
+  return [...counts.entries()]
+    .filter(([, tally]) => tally[kind] > 0)
+    .sort((left, right) => right[1][kind] - left[1][kind] || left[0].localeCompare(right[0]))
+    .slice(0, 20)
+    .map(([fullName, tally], index) => {
+      const row = byName.get(fullName)
+      if (!row) return null
+      return decorate(row, index + 1, {
+        clicks: tally[kind],
+        installClicks: tally.install,
+        interpretClicks: tally.interpret,
+        recommendClicks: tally.recommend,
+      })
+    })
+    .filter(item => item !== null)
 }
 
 async function writeMeta(conn, key, value) {
@@ -508,6 +577,17 @@ async function ensureSchema(conn) {
       KEY idx_ip_created (ip, created_at)
     ) DEFAULT CHARSET=utf8mb4
   `)
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS clicks (
+      id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      full_name VARCHAR(200) NOT NULL,
+      kind VARCHAR(16) NOT NULL,
+      ip VARCHAR(64) NOT NULL DEFAULT '',
+      created_at DATETIME NOT NULL,
+      KEY idx_window (ip, full_name, kind, created_at),
+      KEY idx_rank (kind, full_name)
+    ) DEFAULT CHARSET=utf8mb4
+  `)
 }
 
 async function submitSuggestion(req) {
@@ -574,6 +654,58 @@ async function submitSuggestion(req) {
       return { status: 200, payload: { ok: true, status: 'pending', fullName } }
     } finally {
       await conn.query('SELECT RELEASE_LOCK(?) AS released', [SUGGEST_LOCK])
+    }
+  })
+}
+
+async function submitClick(req) {
+  const body = await readJson(req)
+  const fullName = parseFullName(body.fullName ?? body.full_name ?? body.repo ?? '')
+  const kind = parseClickKind(body.kind)
+  if (fullName.length === 0 || kind.length === 0) {
+    return { status: 400, payload: { ok: false, status: 'invalid', error: '需要仓库和 install / interpret / recommend' } }
+  }
+  const ip = clientIp(req)
+  return withDb(async (conn) => {
+    await ensureSchema(conn)
+    const [lockRows] = await conn.query('SELECT GET_LOCK(?, 2) AS got', [CLICK_LOCK])
+    if (Number(lockRows[0].got) !== 1) {
+      return { status: 200, payload: { ok: false, status: 'busy', error: '请稍后再试' } }
+    }
+    try {
+      const [recent] = await conn.query(
+        `SELECT created_at FROM clicks
+         WHERE ip=? AND full_name=? AND kind=?
+           AND created_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+         ORDER BY id DESC LIMIT 1`,
+        [ip, fullName, kind],
+      )
+      const rawAt = recent[0]?.created_at
+      const lastMs = rawAt instanceof Date ? rawAt.getTime() : Date.parse(String(rawAt ?? ''))
+      if (recent.length > 0 && decideClick(Number.isFinite(lastMs) ? lastMs : Date.now(), Date.now()) === 'cooldown') {
+        const [cnt] = await conn.query(
+          'SELECT COUNT(*) AS n FROM clicks WHERE full_name=? AND kind=?',
+          [fullName, kind],
+        )
+        return {
+          status: 200,
+          payload: { ok: true, status: 'cooldown', fullName, kind, clicks: Number(cnt[0].n) },
+        }
+      }
+      await conn.execute(
+        'INSERT INTO clicks (full_name, kind, ip, created_at) VALUES (?,?,?,NOW())',
+        [fullName, kind, ip],
+      )
+      const [cnt] = await conn.query(
+        'SELECT COUNT(*) AS n FROM clicks WHERE full_name=? AND kind=?',
+        [fullName, kind],
+      )
+      return {
+        status: 200,
+        payload: { ok: true, status: 'counted', fullName, kind, clicks: Number(cnt[0].n) },
+      }
+    } finally {
+      await conn.query('SELECT RELEASE_LOCK(?) AS released', [CLICK_LOCK])
     }
   })
 }
@@ -689,6 +821,11 @@ async function handle(req, res) {
       return rows[0] ?? null
     })
     sendHtml(res, 200, renderRepoCard(fullName, row))
+    return
+  }
+  if (method === 'POST' && url.pathname === '/v1/click') {
+    const result = await submitClick(req)
+    send(res, result.status, result.payload)
     return
   }
   if (method === 'POST' && url.pathname === '/v1/suggest') {

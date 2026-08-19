@@ -12,8 +12,8 @@ export interface WebServer {
 /** Same-origin path the Web UI fetches. */
 export const LEADERBOARD_PATH = '/dsh-plugin-leaderboard'
 
-/** Same-origin path the Web UI posts recommendations to. */
-export const SUGGEST_PATH = '/dsh-plugin-leaderboard/suggest'
+/** Same-origin path the Web UI posts copy / recommend clicks to. */
+export const CLICK_PATH = '/dsh-plugin-leaderboard/click'
 
 function send(res: ServerResponse, status: number, body: string, contentType: string): void {
   res.writeHead(status, {
@@ -85,9 +85,9 @@ export function registerLeaderboardRoute(
       }
     },
   })
-  const stopSuggest = webServer.register({
+  const stopClick = webServer.register({
     kind: 'exact',
-    path: SUGGEST_PATH,
+    path: CLICK_PATH,
     async handler(req: IncomingMessage, res: ServerResponse) {
       const method = req.method ?? 'GET'
       if (method === 'OPTIONS') {
@@ -101,11 +101,11 @@ export function registerLeaderboardRoute(
       }
       try {
         const body = await readJson(req)
-        const result = await catalog.suggest({
+        const result = await catalog.click({
           fullName: String(body.fullName ?? body.full_name ?? ''),
-          reason: String(body.reason ?? ''),
+          kind: String(body.kind ?? ''),
         })
-        send(res, result.ok ? 200 : 400, JSON.stringify(result), 'application/json; charset=utf-8')
+        send(res, result.ok || result.status === 'cooldown' ? 200 : 400, JSON.stringify(result), 'application/json; charset=utf-8')
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         send(res, 502, JSON.stringify({ ok: false, status: 'error', error: message }), 'application/json; charset=utf-8')
@@ -114,6 +114,6 @@ export function registerLeaderboardRoute(
   })
   return () => {
     stopGet()
-    stopSuggest()
+    stopClick()
   }
 }

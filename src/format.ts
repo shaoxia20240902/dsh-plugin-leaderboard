@@ -36,13 +36,17 @@ export function formatLeaderboard(snapshot: LeaderboardSnapshot, rawBoard?: stri
     snapshot.incomplete ? 'GitHub 标记本次搜索结果不完整。' : '',
   ].filter(line => line.length > 0).join('\n')
 
-  const boards: BoardId[] = selected === 'all' ? ['hot', 'new', 'fire', 'recommend'] : [selected]
+  const boards: BoardId[] = selected === 'all'
+    ? ['hot', 'new', 'fire', 'download', 'interpret', 'recommend']
+    : [selected]
   const body = boards.map(id => formatBoard(snapshot.boards[id])).join('\n\n')
   const legend = [
     '',
     `最热：${BOARD_COPY.hot.description}`,
     `最新：${BOARD_COPY.new.description}`,
     `最火：${BOARD_COPY.fire.description}`,
+    `下载：${BOARD_COPY.download.description}`,
+    `解读：${BOARD_COPY.interpret.description}`,
     `推荐：${BOARD_COPY.recommend.description}`,
     '',
     '侧边栏点「解读」会复制一段提示词，粘到对话框即可让智能体 clone 仓库并用大白话讲解。',

@@ -77,6 +77,8 @@ describe('parseBoardId', () => {
     expect(parseBoardId('最热')).toBe('hot')
     expect(parseBoardId('最新')).toBe('new')
     expect(parseBoardId('最火')).toBe('fire')
+    expect(parseBoardId('下载')).toBe('download')
+    expect(parseBoardId('解读')).toBe('interpret')
     expect(parseBoardId('推荐')).toBe('recommend')
     expect(parseBoardId('')).toBe('all')
     expect(parseBoardId('unknown')).toBe('all')

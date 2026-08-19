@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { browseUrl, cardUrl, isProxiedApi, resolveAccess } from '../access.ts'
+import { browseUrl, isProxiedApi, resolveAccess } from '../access.ts'
 import { fetchCatalog } from '../github.ts'
 import { interpretPrompt } from '../interpret.ts'
-import { fetchOriginSnapshot, looksLikeSnapshot, submitOriginSuggestion } from '../origin.ts'
+import { fetchOriginSnapshot, looksLikeSnapshot, submitOriginClick } from '../origin.ts'
 import { buildLeaderboard } from '../rank.ts'
-import { parseRepoRef } from '../repo-ref.ts'
 import { DEFAULT_ORIGIN_URL, DEFAULT_TOPIC, type BoardId, type LeaderboardSnapshot, type RankedPlugin } from '../types.ts'
 import type { LeaderboardKey } from './locales.ts'
 import { ensureLeaderboardStyles } from './styles.ts'
 
 const HOST_PATH = '/dsh-plugin-leaderboard'
 const CACHE_KEY = 'dsh-plugin-leaderboard-cache'
+const TABS: readonly BoardId[] = ['hot', 'new', 'fire', 'download', 'interpret', 'recommend']
 
 export interface LeaderboardPanelProps {
   readonly wide: boolean
@@ -141,165 +141,97 @@ function officialUrl(item: RankedPlugin): string {
   return browseUrl(item.fullName)
 }
 
-function detailUrl(item: RankedPlugin): string {
-  if (item.mirrorUrl.length > 0 && !item.mirrorUrl.includes('kkgithub.com')) return item.mirrorUrl
-  return cardUrl(DEFAULT_ORIGIN_URL, item.fullName)
-}
-
-async function postSuggestion(fullName: string, reason: string): Promise<{ ok: boolean; status: string; error?: string }> {
+async function postClick(fullName: string, kind: 'install' | 'interpret' | 'recommend'): Promise<{ status: string; clicks?: number }> {
   try {
-    const response = await fetch('/dsh-plugin-leaderboard/suggest', {
+    const response = await fetch(`${HOST_PATH}/click`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ fullName, reason }),
-      signal: AbortSignal.timeout(12_000),
+      body: JSON.stringify({ fullName, kind }),
+      signal: AbortSignal.timeout(8_000),
     })
-    if (response.ok || response.status === 400 || response.status === 429) {
-      return await response.json() as { ok: boolean; status: string; error?: string }
+    if (response.ok || response.status === 400) {
+      return await response.json() as { status: string; clicks?: number }
     }
   } catch {
     // Host route missing — talk to the origin directly.
   }
-  return submitOriginSuggestion(DEFAULT_ORIGIN_URL, { fullName, reason })
+  return submitOriginClick(DEFAULT_ORIGIN_URL, { fullName, kind })
 }
 
 function PluginRow({
   item,
+  board,
   t,
-  onSuggest,
 }: {
   item: RankedPlugin
+  board: BoardId
   t: LeaderboardPanelProps['t']
-  onSuggest: (fullName: string) => void
 }): ReactElement {
   const [copied, setCopied] = useState<'install' | 'interpret' | null>(null)
+  const [picked, setPicked] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
   const openUrl = officialUrl(item)
-  const card = detailUrl(item)
+
+  const mark = async (kind: 'install' | 'interpret' | 'recommend'): Promise<void> => {
+    const result = await postClick(item.fullName, kind)
+    if (result.status === 'cooldown') setNote(t('cooldown'))
+    else setNote(null)
+    window.setTimeout(() => { setNote(null) }, 1600)
+  }
+
   const copy = async (kind: 'install' | 'interpret'): Promise<void> => {
     const text = kind === 'install' ? item.install : (item.interpret || interpretPrompt(item))
     const ok = await writeClipboard(text)
     if (!ok) return
     setCopied(kind)
     window.setTimeout(() => { setCopied(null) }, 1600)
+    void mark(kind)
   }
+
+  const recommend = (): void => {
+    setPicked(true)
+    window.setTimeout(() => { setPicked(false) }, 1600)
+    void mark('recommend')
+  }
+
+  const clickCount = board === 'download'
+    ? item.clicks ?? item.installClicks
+    : board === 'interpret'
+      ? item.clicks ?? item.interpretClicks
+      : board === 'recommend'
+        ? item.clicks ?? item.recommendClicks
+        : undefined
+
   return (
     <li className="dsh-lb-row">
       <RankBadge rank={item.rank} />
       <div className="dsh-lb-main">
         <a className="dsh-lb-name" href={openUrl} target="_blank" rel="noreferrer">{item.fullName}</a>
-        {item.reason ? <p className="dsh-lb-desc">{item.reason}</p> : null}
-        {!item.reason && item.description.length > 0 && <p className="dsh-lb-desc">{item.description}</p>}
+        {item.description.length > 0 && <p className="dsh-lb-desc">{item.description}</p>}
         <div className="dsh-lb-meta">
-          <span>★ {formatCount(item.stars)} {t('stars')}</span>
-          <span>⌥ {formatCount(item.forks)} {t('forks')}</span>
+          <span>★ {formatCount(item.stars)}</span>
+          <span>{formatCount(item.forks)} fork</span>
           {item.createdAt.length > 0 && <span>{ageLabel(item.createdAt)}</span>}
+          {clickCount !== undefined && clickCount > 0 && <span>{t('clicks', { n: clickCount })}</span>}
+          {note !== null && <span>{note}</span>}
         </div>
-      </div>
-      <div className="dsh-lb-actions">
-        <button type="button" className="dsh-lb-action" onClick={() => { void copy('install') }}>
-          {copied === 'install' ? t('copied') : t('copy')}
-        </button>
-        <button type="button" className="dsh-lb-action dsh-lb-action-interpret" onClick={() => { void copy('interpret') }}>
-          {copied === 'interpret' ? t('interpreted') : t('interpret')}
-        </button>
-        <a className="dsh-lb-action" href={openUrl} target="_blank" rel="noreferrer">
-          {t('open')}
-        </a>
-        <a className="dsh-lb-action" href={card} target="_blank" rel="noreferrer">
-          {t('card')}
-        </a>
-        <button type="button" className="dsh-lb-action" onClick={() => { onSuggest(item.fullName) }}>
-          {t('suggestThis')}
-        </button>
+        <div className="dsh-lb-actions">
+          <button type="button" className="dsh-lb-action" onClick={() => { void copy('install') }}>
+            {copied === 'install' ? t('copied') : t('copy')}
+          </button>
+          <button type="button" className="dsh-lb-action" onClick={() => { void copy('interpret') }}>
+            {copied === 'interpret' ? t('interpreted') : t('interpret')}
+          </button>
+          <button type="button" className="dsh-lb-action" onClick={recommend}>
+            {picked ? t('copied') : t('recommend')}
+          </button>
+        </div>
       </div>
     </li>
   )
 }
 
-function RecommendForm({
-  t,
-  draft,
-  onPublished,
-}: {
-  t: (key: LeaderboardKey, params?: Record<string, string | number>) => string
-  draft: string
-  onPublished: () => void
-}): ReactElement {
-  const [repo, setRepo] = useState(draft)
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
-
-  useEffect(() => { setRepo(draft) }, [draft])
-
-  const submit = async (): Promise<void> => {
-    const fullName = parseRepoRef(repo)
-    const trimmed = reason.trim()
-    if (fullName === undefined || trimmed.length < 8) {
-      setNote({ kind: 'err', text: t('suggestInvalid') })
-      return
-    }
-    setBusy(true)
-    setNote(null)
-    try {
-      const result = await postSuggestion(fullName, trimmed)
-      if (result.status === 'published') {
-        setNote({ kind: 'ok', text: t('suggestPublished') })
-        setReason('')
-        onPublished()
-      } else if (result.status === 'pending') {
-        setNote({ kind: 'ok', text: t('suggestPending') })
-        setReason('')
-      } else if (result.status === 'exists') {
-        setNote({ kind: 'ok', text: t('suggestExists') })
-      } else {
-        setNote({ kind: 'err', text: result.error || t('suggestError') })
-      }
-    } catch (error) {
-      setNote({ kind: 'err', text: error instanceof Error ? error.message : t('suggestError') })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <form
-      className="dsh-lb-suggest"
-      onSubmit={(event) => {
-        event.preventDefault()
-        void submit()
-      }}
-    >
-      <h3>{t('suggest')}</h3>
-      <div className="dsh-lb-field">
-        <label htmlFor="dsh-lb-repo">{t('suggestRepo')}</label>
-        <input
-          id="dsh-lb-repo"
-          value={repo}
-          placeholder={t('suggestRepoHint')}
-          onChange={(event) => { setRepo(event.target.value) }}
-        />
-      </div>
-      <div className="dsh-lb-field">
-        <label htmlFor="dsh-lb-reason">{t('suggestReason')}</label>
-        <textarea
-          id="dsh-lb-reason"
-          value={reason}
-          placeholder={t('suggestReasonHint')}
-          onChange={(event) => { setReason(event.target.value) }}
-        />
-      </div>
-      <button type="submit" className="dsh-lb-suggest-submit" disabled={busy}>
-        {busy ? t('suggestBusy') : t('suggestSubmit')}
-      </button>
-      {note !== null && (
-        <p className={note.kind === 'err' ? 'dsh-lb-error' : 'dsh-lb-note'}>{note.text}</p>
-      )}
-    </form>
-  )
-}
-
-/** Sidebar footer action: a trophy button that opens the four-board panel. */
+/** Sidebar footer action that opens the leaderboard panel. */
 export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactElement {
   const cached = readCachedSnapshot()
   const [open, setOpen] = useState(false)
@@ -310,7 +242,6 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
   const [refreshing, setRefreshing] = useState(false)
   const [note, setNote] = useState<LeaderboardKey | null>(null)
   const [generation, setGeneration] = useState(0)
-  const [draft, setDraft] = useState('')
   const snapshotRef = useRef(snapshot)
   const wantRefreshRef = useRef(false)
   snapshotRef.current = snapshot
@@ -366,8 +297,7 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
             <div className="dsh-lb-heading">
               <span className="dsh-lb-title">{translate('title')}</span>
               <span className="dsh-lb-sub">
-                {translate('subtitle')}
-                {snapshot !== undefined ? ` · ${translate('sample', { total: snapshot.total })}` : ''}
+                {snapshot !== undefined ? translate('subtitle', { total: snapshot.total }) : ''}
                 {snapshot !== undefined ? ` · ${translate('updatedAt', { time: formatWhen(snapshot.fetchedAt) })}` : ''}
               </span>
             </div>
@@ -385,7 +315,7 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
           </header>
           {note !== null && <p className="dsh-lb-banner">{translate(note)}</p>}
           <div className="dsh-lb-tabs" role="tablist">
-            {(['hot', 'new', 'fire', 'recommend'] as const).map((id) => (
+            {TABS.map((id) => (
               <button
                 key={id}
                 type="button"
@@ -410,48 +340,11 @@ export function LeaderboardPanel({ wide, t }: LeaderboardPanelProps): ReactEleme
             {snapshot !== undefined && items.length > 0 && (
               <ol className="dsh-lb-list">
                 {items.map(item => (
-                  <PluginRow
-                    key={item.fullName}
-                    item={item}
-                    t={translate}
-                    onSuggest={(fullName) => {
-                      setDraft(fullName)
-                      setBoard('recommend')
-                    }}
-                  />
+                  <PluginRow key={item.fullName} item={item} board={board} t={translate} />
                 ))}
               </ol>
             )}
-            {board === 'recommend' && (
-              <RecommendForm
-                t={translate}
-                draft={draft}
-                onPublished={() => {
-                  void fetch(`${HOST_PATH}?fresh=1`, { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
-                    .then(async (response) => {
-                      if (!response.ok) throw new Error('fresh failed')
-                      return await response.json() as unknown
-                    })
-                    .then((payload) => {
-                      if (!looksLikeSnapshot(payload)) return
-                      remember(payload)
-                      setSnapshot(payload)
-                    })
-                    .catch(() => {
-                      void fetchOriginSnapshot(DEFAULT_ORIGIN_URL).then((next) => {
-                        remember(next)
-                        setSnapshot(next)
-                      })
-                    })
-                }}
-              />
-            )}
           </div>
-          <footer className="dsh-lb-foot">
-            {snapshot?.access?.proxied === true ? `${translate('proxied')} ` : ''}
-            {snapshot?.incomplete === true ? `${translate('incomplete')} ` : ''}
-            {translate('heatHint')}
-          </footer>
         </section>
       )}
       <button

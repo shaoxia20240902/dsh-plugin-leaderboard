@@ -33,9 +33,17 @@ export const BOARD_COPY: Record<BoardId, { title: string; description: string }>
     title: '最火 Top 10',
     description: '爆发力：单位时间涨星（重力衰减）× 近期是否还在动。',
   },
+  download: {
+    title: '下载',
+    description: '按「安装」复制次数排序。同一 IP 同一仓库 15 分钟只计一次。',
+  },
+  interpret: {
+    title: '解读',
+    description: '按「解读」复制次数排序。同一 IP 同一仓库 15 分钟只计一次。',
+  },
   recommend: {
     title: '推荐',
-    description: '人工精选、适合先装的插件。',
+    description: '按「推荐」点击次数排序。同一 IP 同一仓库 15 分钟只计一次。',
   },
 }
 
@@ -137,6 +145,8 @@ export function buildLeaderboard(
       hot: board('hot', hot, nowMs, access),
       new: board('new', newest, nowMs, access),
       fire: board('fire', fire, nowMs, access),
+      download: board('download', [], nowMs, access),
+      interpret: board('interpret', [], nowMs, access),
       recommend: board('recommend', [], nowMs, access),
     },
   }
@@ -149,6 +159,8 @@ export function parseBoardId(raw: string | undefined): BoardId | 'all' {
   if (value === 'hot' || value === '最热' || value === 'stars') return 'hot'
   if (value === 'new' || value === '最新' || value === 'newest') return 'new'
   if (value === 'fire' || value === '最火' || value === 'hotfire' || value === 'top') return 'fire'
+  if (value === 'download' || value === '下载' || value === 'install') return 'download'
+  if (value === 'interpret' || value === '解读' || value === 'explain') return 'interpret'
   if (value === 'recommend' || value === '推荐' || value === 'rec') return 'recommend'
   return 'all'
 }
